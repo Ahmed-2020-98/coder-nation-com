@@ -2,6 +2,8 @@ import { ArrowUp } from "lucide-react";
 import { content } from "@/content";
 import { ecosystem } from "@/config/ecosystem";
 import { Logo } from "@/components/Logo";
+import { getSiteSettings, SOCIAL_KEYS } from "@/server/settings";
+import { contactRows } from "@/server/site-links";
 
 // Cache Components forbids reading the clock during prerender; "use cache" resolves it once and reuses it.
 async function CurrentYear() {
@@ -9,10 +11,12 @@ async function CurrentYear() {
   return new Date().getFullYear();
 }
 
-export function Footer() {
-  const { footer, contact } = content;
-  // Only links flagged `enabled` in src/config/ecosystem.ts are shown (none yet).
-  const apps = ecosystem.filter((app) => app.enabled);
+export async function Footer() {
+  const { footer } = content;
+  const settings = await getSiteSettings();
+  // Only the links switched on in the admin panel (default: src/config/ecosystem.ts, none yet) are shown.
+  const apps = ecosystem.filter((app) => settings.ecosystem[app.id]);
+  const socials = SOCIAL_KEYS.filter((key) => settings.socials[key]);
 
   return (
     <footer data-tone="navy" className="relative border-t border-line bg-canvas-alt text-ink">
@@ -44,13 +48,35 @@ export function Footer() {
           <div>
             <p className="font-heading font-bold">{footer.contactTitle}</p>
             <ul className="mt-4 grid gap-3 text-ink-muted">
-              {contact.info.map((row) => (
+              {contactRows(settings).map((row) => (
                 <li key={row.label}>
                   <span className="block text-sm">{row.label}</span>
                   <span className="block text-ink">{row.value}</span>
                 </li>
               ))}
             </ul>
+
+            {socials.length > 0 ? (
+              <>
+                <p className="mt-8 font-heading font-bold">{footer.socialTitle}</p>
+                <ul className="mt-3 grid gap-1">
+                  {socials.map((key) => (
+                    <li key={key}>
+                      <a
+                        href={settings.socials[key]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        dir="ltr"
+                        className="inline-flex min-h-9 items-center text-ink-muted transition-colors hover:text-accent"
+                      >
+                        {footer.socialLabels[key]}
+                        <span className="sr-only">{content.a11y.newTab}</span>
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
 
             {apps.length > 0 ? (
               <>

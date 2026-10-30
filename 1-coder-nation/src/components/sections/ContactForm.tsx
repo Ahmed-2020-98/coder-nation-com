@@ -1,16 +1,15 @@
 "use client";
 
-import { useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { Check, ChevronDown, Send } from "lucide-react";
 import { content } from "@/content";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/Button";
+import { EMAIL_RE, PHONE_RE, normalizePhone } from "@/lib/lead-rules";
+import { submitLead } from "@/app/(site)/actions";
 
-type FieldName = "name" | "phone" | "email";
+type FieldName = "name" | "phone" | "email" | "service" | "message";
 type Errors = Partial<Record<FieldName, string>>;
-
-const PHONE_RE = /^\+?[0-9٠-٩]{8,15}$/;
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 const control =
   "w-full rounded-lg border bg-canvas-alt/70 px-4 text-ink transition-colors duration-(--duration-fast) placeholder:text-ink-muted/60 focus:border-accent";
@@ -45,14 +44,17 @@ function Field({
 }
 
 /**
- * Front-end only: validates and shows a success state, but sends nothing (no backend yet).
+ * Validates in the browser for instant feedback, then sends the form to the `submitLead` server action, which
+ * validates again and stores the request for the admin panel.
  * Accessibility: visible labels, aria-invalid + aria-describedby per field, and a focusable
  * error summary (role="alert") that links to each invalid field.
  */
-export function ContactForm() {
+export function ContactForm({ whatsappHref }: { whatsappHref: string }) {
   const { form } = content.contact;
   const [errors, setErrors] = useState<Errors>({});
   const [sent, setSent] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
   const summaryRef = useRef<HTMLDivElement>(null);
   const errorKeys = Object.keys(errors) as FieldName[];
 
@@ -60,7 +62,7 @@ export function ContactForm() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     const name = String(data.get("name") ?? "").trim();
-    const phone = String(data.get("phone") ?? "").replace(/[\s()-]/g, "");
+    const phone = normalizePhone(String(data.get("phone") ?? ""));
     const email = String(data.get("email") ?? "").trim();
 
     const next: Errors = {};
@@ -74,7 +76,20 @@ export function ContactForm() {
       requestAnimationFrame(() => summaryRef.current?.focus());
       return;
     }
-    setSent(true);
+    setFailure(null);
+    startTransition(async () => {
+      const result = await submitLead(data);
+      if (result.ok) {
+        setSent(true);
+        return;
+      }
+      if (result.fieldErrors) {
+        setErrors(result.fieldErrors as Errors);
+        requestAnimationFrame(() => summaryRef.current?.focus());
+      } else {
+        setFailure(result.error);
+      }
+    });
   }
 
   if (sent) {
@@ -99,7 +114,7 @@ export function ContactForm() {
     <form
       noValidate
       onSubmit={onSubmit}
-      className="rounded-2xl border border-line bg-surface p-6 shadow-window sm:p-8"
+      className="relative rounded-2xl border border-line bg-surface p-6 shadow-window sm:p-8"
       aria-labelledby="contact-form-title"
     >
       <h3 id="contact-form-title" className="text-xl font-bold">
@@ -168,7 +183,7 @@ export function ContactForm() {
           />
         </Field>
 
-        <Field name="service" label={form.fields.service.label} mark={form.optionalMark}>
+        <Field name="service" label={form.fields.service.label} mark={form.optionalMark} error={errors.service}>
           <div className="relative">
             <select
               id="field-service"
@@ -191,7 +206,7 @@ export function ContactForm() {
         </Field>
 
         <div className="sm:col-span-2">
-          <Field name="message" label={form.fields.message.label} mark={form.optionalMark}>
+          <Field name="message" label={form.fields.message.label} mark={form.optionalMark} error={errors.message}>
             <textarea
               id="field-message"
               name="message"
@@ -203,8 +218,25 @@ export function ContactForm() {
         </div>
       </div>
 
-      <Button type="submit" size="lg" className="mt-7 w-full sm:w-auto">
-        {form.submit}
+      {/* Honeypot: invisible to people and to screen readers, irresistible to form-filling bots. */}
+      <div aria-hidden="true" className="absolute -start-[9999px] h-0 w-0 overflow-hidden">
+        <label>
+          Website
+          <input type="text" name="website" tabIndex={-1} autoComplete="off" />
+        </label>
+      </div>
+
+      {failure ? (
+        <div role="alert" className="mt-6 rounded-lg border border-error-400/60 bg-error-500/10 p-4 text-error-300">
+          <p>{failure}</p>
+          <a href={whatsappHref} target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold underline underline-offset-4">
+            {content.contact.whatsapp.label}
+          </a>
+        </div>
+      ) : null}
+
+      <Button type="submit" size="lg" className="mt-7 w-full sm:w-auto" disabled={pending} aria-busy={pending}>
+        {pending ? form.failure.sending : form.submit}
         <Send aria-hidden="true" className="size-4 rtl:-scale-x-100" />
       </Button>
     </form>

@@ -293,10 +293,18 @@ export const ar = {
         name: "الرجاء إدخال الاسم (حرفان على الأقل)",
         phone: "الرجاء إدخال رقم هاتف صحيح",
         email: "الرجاء إدخال بريد إلكتروني صحيح",
+        service: "اختر نوع المشروع من القائمة",
+        message: "التفاصيل أطول من اللازم (الحد 2000 حرف)",
+      },
+      // Shown when the request could not be saved or the visitor sent too many; always paired with the WhatsApp link.
+      failure: {
+        server: "تعذّر إرسال طلبك الآن. حاول مرة أخرى بعد قليل، أو تواصل معنا مباشرة عبر واتساب.",
+        tooMany: "أرسلت عددًا كبيرًا من الطلبات. حاول مرة أخرى بعد قليل، أو تواصل معنا عبر واتساب.",
+        sending: "جارٍ الإرسال…",
       },
       success: {
         title: "تم استلام طلبك",
-        text: "هذه نسخة تجريبية من الموقع، لذلك لم يتم إرسال البيانات فعليًا بعد.",
+        text: "شكرًا لك. سنراجع تفاصيل مشروعك ونتواصل معك قريبًا.",
         again: "إرسال طلب آخر",
       },
     },
@@ -325,6 +333,9 @@ export const ar = {
       },
     ],
     contactTitle: "تواصل",
+    socialTitle: "تابعنا",
+    // Shown in the footer only for the accounts filled in from the admin panel's settings.
+    socialLabels: { linkedin: "LinkedIn", x: "X", instagram: "Instagram", github: "GitHub", tiktok: "TikTok", youtube: "YouTube" } as Record<string, string>,
     ecosystemTitle: "منظومتنا",
     ecosystemLabels: { marketing: "التسويق", sales: "المبيعات", crm: "إدارة العملاء" } as Record<string, string>,
     rights: "جميع الحقوق محفوظة.",

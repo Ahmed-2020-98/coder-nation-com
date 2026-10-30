@@ -1,0 +1,65 @@
+/* Admin-only helpers (the public site never loads this file). Colors come from the shared tokens. */
+
+/* Navy panels get a soft orange glow in one corner */
+.glow-corner {
+  /* background-image (not the `background` shorthand): the shorthand would reset the panel's bg-canvas colour */
+  background-image: radial-gradient(28rem 18rem at 100% 0%, color-mix(in srgb, var(--color-primary-500) 22%, transparent), transparent 70%);
+}
+
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.skeleton {
+  background: linear-gradient(100deg, var(--line) 30%, color-mix(in srgb, var(--line) 40%, transparent) 50%, var(--line) 70%);
+  background-size: 300% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: var(--radius-md);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-in {
+  animation: fade-in 0.35s var(--ease-out-expo) both;
+}
+
+dialog::backdrop {
+  background: color-mix(in srgb, var(--color-secondary-950) 62%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton,
+  .spin,
+  .fade-in {
+    animation: none;
+  }
+}

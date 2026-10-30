@@ -1,13 +1,16 @@
 import { content } from "@/content";
 import { whatsappUrl } from "@/config/site";
+import { getSiteSettings } from "@/server/settings";
+import { contactRows } from "@/server/site-links";
 import { DynamicIcon, WhatsAppIcon } from "@/components/icons";
 import { Reveal } from "@/components/Reveal";
 import { Button } from "@/components/ui/Button";
 import { Section, SectionHeader } from "@/components/ui/Section";
 import { ContactForm } from "./ContactForm";
 
-export function Contact() {
+export async function Contact() {
   const { contact, a11y } = content;
+  const settings = await getSiteSettings();
 
   return (
     <Section id="contact" tone="navy" labelledBy="contact-title">
@@ -32,7 +35,7 @@ export function Contact() {
           </p>
 
           <Button
-            href={whatsappUrl(contact.whatsapp.message)}
+            href={whatsappUrl(settings.whatsappNumber, contact.whatsapp.message)}
             target="_blank"
             rel="noopener noreferrer"
             variant="secondary"
@@ -45,7 +48,7 @@ export function Contact() {
           </Button>
 
           <ul className="mt-10 grid gap-5">
-            {contact.info.map((row) => (
+            {contactRows(settings).map((row) => (
               <li key={row.label} className="flex items-center gap-4">
                 <span className="grid size-11 shrink-0 place-items-center rounded-lg bg-accent-soft text-accent">
                   <DynamicIcon name={row.icon} className="size-5" />
@@ -60,7 +63,7 @@ export function Contact() {
         </div>
 
         <Reveal>
-          <ContactForm />
+          <ContactForm whatsappHref={whatsappUrl(settings.whatsappNumber, contact.whatsapp.message)} />
         </Reveal>
       </div>
     </Section>

@@ -8,10 +8,12 @@ import { Testimonials } from "@/components/sections/Testimonials";
 import { Faq } from "@/components/sections/Faq";
 import { Contact } from "@/components/sections/Contact";
 import { Footer } from "@/components/sections/Footer";
+import { OrganizationJsonLd } from "@/components/OrganizationJsonLd";
 
 export default function Home() {
   return (
     <>
+      <OrganizationJsonLd />
       <Navbar />
       <main id="main">
         <Hero />
