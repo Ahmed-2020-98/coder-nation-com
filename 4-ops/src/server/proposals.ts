@@ -286,6 +286,20 @@ export async function markSent(id: string, userId: string): Promise<SaveResult> 
   });
 }
 
+/** The accepted proposal is the agreed price, so the deal's expected value (and currency) follow it. */
+async function syncDealValue(tx: ReturnType<typeof sql>, proposalId: string, dealId: string, userId: string): Promise<void> {
+  const [row] = await tx<{ subtotal: string; discount_minor: string; tax_rate_bp: number | null; currency: string }[]>`
+    select coalesce((select sum(i.quantity * i.unit_price_minor) from proposal_items i where i.proposal_id = p.id), 0) as subtotal, p.discount_minor, p.tax_rate_bp, p.currency
+    from proposals p where p.id = ${proposalId}`;
+  const { computeTotals } = await import("@/lib/money");
+  const totalMinor = computeTotals([{ quantity: 1, unitPriceMinor: Number(row.subtotal) }], Number(row.discount_minor), row.tax_rate_bp).totalMinor;
+  const currency = row.currency.trim();
+  const changed = await tx`
+    update deals set value_minor = ${totalMinor}, currency = ${currency}, updated_at = now()
+    where id = ${dealId} and (value_minor is distinct from ${totalMinor} or currency is distinct from ${currency}) returning id`;
+  if (changed.length > 0) await tx`insert into activities (deal_id, user_id, kind, body) values (${dealId}, ${userId}, 'system', 'اتحدّثت قيمة الصفقة لتطابق العرض المقبول')`;
+}
+
 export async function setOutcome(id: string, outcome: "accepted" | "rejected", userId: string): Promise<SaveResult> {
   return sql().begin(async (tx): Promise<SaveResult> => {
     const [row] = await tx<{ status: ProposalStatus; deal_id: string; number: string }[]>`select status, deal_id, number from proposals where id = ${id} for update`;
@@ -293,6 +307,7 @@ export async function setOutcome(id: string, outcome: "accepted" | "rejected", u
     if (row.status !== "sent") return { ok: false, error: "النتيجة بتتسجّل للعرض المُرسل بس" };
     await tx`update proposals set status = ${outcome}, updated_at = now() where id = ${id}`;
     await tx`insert into activities (deal_id, user_id, kind, body) values (${row.deal_id}, ${userId}, 'system', ${`العرض ${row.number} ${outcome === "accepted" ? "اتقبل" : "اترفض"}`})`;
+    if (outcome === "accepted") await syncDealValue(tx as unknown as ReturnType<typeof sql>, id, row.deal_id, userId);
     return { ok: true };
   });
 }

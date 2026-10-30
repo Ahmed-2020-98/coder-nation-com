@@ -357,6 +357,21 @@ describe("proposals", () => {
     expect((await m.proposals.getProposal(proposalId))?.title).toBe("عرض الموقع");
   });
 
+  it("accepting a proposal sets the deal's value and currency to its total; rejecting leaves them alone", async () => {
+    const { user, proposalId, dealId } = await setup();
+    await m.proposals.saveProposal(proposalId, validInput());
+    await m.proposals.markSent(proposalId, user.id);
+    expect(await m.proposals.setOutcome(proposalId, "rejected", user.id)).toEqual({ ok: true });
+    expect(await m.crm.getDeal(dealId)).toMatchObject({ valueMinor: 500000, currency: "USD" });
+
+    const other = (await m.proposals.createProposalForDeal(dealId, user.id)) as string;
+    await m.proposals.saveProposal(other, validInput({ currency: "SAR" }));
+    await m.proposals.markSent(other, user.id);
+    expect(await m.proposals.setOutcome(other, "accepted", user.id)).toEqual({ ok: true });
+    // subtotal 25,001.00 - 1,000.00 discount + 14% tax = 27,361.14
+    expect(await m.crm.getDeal(dealId)).toMatchObject({ valueMinor: 27_361_14, currency: "SAR" });
+  });
+
   it("lists proposals with totals that include discount and tax", async () => {
     const { proposalId } = await setup();
     await m.proposals.saveProposal(proposalId, validInput());
