@@ -3,6 +3,9 @@ import { PdfError, renderProposalPdf } from "@/server/pdf";
 import { getProposal } from "@/server/proposals";
 import { currentToken, requirePermission } from "@/server/session";
 
+// Starting Chromium and printing takes a few seconds; the default limit is too tight for a cold start.
+export const maxDuration = 60;
+
 const text = (status: number, message: string) => new Response(message, { status, headers: { "Content-Type": "text/plain; charset=utf-8", "Cache-Control": "no-store" } });
 
 /** The proposal as a PDF, made by headless Chrome from the print page. Same permission as everything else about proposals. */

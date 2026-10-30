@@ -19,7 +19,17 @@ export function renderProposalPdf(proposalId: string, sessionToken: string, numb
   return run;
 }
 
-async function render(proposalId: string, sessionToken: string, number: string): Promise<Buffer> {
+/** On Vercel there is no installed Chrome: a Chromium build made for Lambda ships with the function. Elsewhere, the Chrome on the machine. */
+async function launchBrowser() {
+  const fail = (error: unknown): never => {
+    throw new PdfError(`تعذّر تشغيل Chrome: ${error instanceof Error ? error.message.slice(0, 160) : "خطأ غير معروف"}`);
+  };
+  if (process.env.VERCEL) {
+    const { default: chromium } = await import("@sparticuz/chromium");
+    return puppeteer
+      .launch({ executablePath: await chromium.executablePath(), headless: "shell", args: [...chromium.args, "--font-render-hinting=none"], timeout: 30_000 })
+      .catch(fail);
+  }
   const executablePath = chromePath();
   if (executablePath.startsWith("/")) {
     try {
@@ -28,10 +38,12 @@ async function render(proposalId: string, sessionToken: string, number: string):
       throw new PdfError("Chrome مش موجود. نزّله أو حدد مساره في CHROME_PATH.");
     }
   }
+  return puppeteer.launch({ executablePath, headless: true, args: ["--font-render-hinting=none"], timeout: 30_000 }).catch(fail);
+}
+
+async function render(proposalId: string, sessionToken: string, number: string): Promise<Buffer> {
   const base = appUrl();
-  const browser = await puppeteer.launch({ executablePath, headless: true, args: ["--font-render-hinting=none"], timeout: 30_000 }).catch((error: unknown) => {
-    throw new PdfError(`تعذّر تشغيل Chrome: ${error instanceof Error ? error.message.slice(0, 160) : "خطأ غير معروف"}`);
-  });
+  const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
     await page.setCookie({ name: SESSION_COOKIE, value: sessionToken, url: base, httpOnly: true, secure: isProduction && base.startsWith("https") });
