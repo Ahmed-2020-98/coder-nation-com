@@ -1,0 +1,220 @@
+@import "tailwindcss";
+@import "../styles/tokens.css";
+
+/* ============================================================
+   Base
+   ============================================================ */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    /* Arabic needs air: 16px base, tall line-height (dense UI keeps it at 1.7) */
+    font-size: 1rem;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-heading);
+    line-height: 1.4;
+    /* never add letter-spacing to Arabic: it breaks the connected letterforms */
+    letter-spacing: 0;
+    text-wrap: balance;
+  }
+
+  p {
+    text-wrap: pretty;
+  }
+
+  ::selection {
+    background: var(--color-primary-500);
+    color: var(--color-secondary-900);
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+  }
+
+  :where(a, button, input, select, textarea, summary, [tabindex], dialog):focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+
+  button:not(:disabled),
+  [role="button"],
+  select,
+  summary {
+    cursor: pointer;
+  }
+}
+
+/* ============================================================
+   Utilities used across the dashboard
+   ============================================================ */
+.skip-link {
+  position: fixed;
+  inset-inline-start: 1rem;
+  top: -4rem;
+  z-index: 100;
+  padding: 0.6rem 1.1rem;
+  border-radius: var(--radius-md);
+  background: var(--color-primary-500);
+  color: var(--color-secondary-900);
+  font-weight: 700;
+  transition: top var(--duration-fast) ease;
+}
+.skip-link:focus {
+  top: 0.75rem;
+}
+
+/* Faint blueprint grid behind the top of the workspace */
+.blueprint {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-secondary-900) 4.5%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-secondary-900) 4.5%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(to bottom, #000, transparent 70%);
+}
+
+/* Navy panels get a soft orange glow in one corner */
+.glow-corner {
+  /* background-image (not the `background` shorthand): the shorthand would reset the panel's bg-canvas colour */
+  background-image: radial-gradient(28rem 18rem at 100% 0%, color-mix(in srgb, var(--color-primary-500) 22%, transparent), transparent 70%);
+}
+
+/* Thin, unobtrusive scrollbars for panels */
+.thin-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+/* Indeterminate progress while an agent works */
+.indeterminate {
+  position: relative;
+  overflow: hidden;
+}
+.indeterminate::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--color-primary-500);
+  animation: slide 1.4s var(--ease-out-expo) infinite;
+}
+
+.skeleton {
+  background: linear-gradient(100deg, var(--line) 30%, color-mix(in srgb, var(--line) 40%, transparent) 50%, var(--line) 70%);
+  background-size: 300% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: var(--radius-md);
+}
+
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* Teleprompter */
+.prompter-mirror {
+  transform: scaleX(-1);
+}
+
+/* ============================================================
+   Keyframes
+   ============================================================ */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+@keyframes slide {
+  from {
+    transform: translateX(-120%);
+  }
+  to {
+    transform: translateX(260%);
+  }
+}
+[dir="rtl"] .indeterminate::after {
+  animation-name: slide-rtl;
+}
+@keyframes slide-rtl {
+  from {
+    transform: translateX(120%);
+  }
+  to {
+    transform: translateX(-260%);
+  }
+}
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.35rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.fade-in {
+  animation: fade-in 0.35s var(--ease-out-expo) both;
+}
+
+dialog::backdrop {
+  background: color-mix(in srgb, var(--color-secondary-950) 62%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+/* ============================================================
+   Reduced motion: keep the final state, drop the movement
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+  .indeterminate::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.5;
+  }
+  .spin {
+    animation: none;
+  }
+}

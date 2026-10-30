@@ -1,0 +1,41 @@
+{
+  "name": "3-marketing-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3010 -H 127.0.0.1",
+    "build": "next build",
+    "start": "next start -p 3010 -H 127.0.0.1",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "palette": "node scripts/palette.mjs",
+    "smoke:agents": "node scripts/smoke-agents.mjs",
+    "demo": "node scripts/demo.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.312",
+    "diff": "^9.0.0",
+    "exceljs": "^4.4.0",
+    "lucide-react": "^1.63.0",
+    "next": "16.4.3",
+    "papaparse": "^5.7.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@tailwindcss/turbopack": "^4",
+    "@types/diff": "^7.0.2",
+    "@types/node": "^24.19.2",
+    "@types/papaparse": "^5.5.2",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.3",
+    "tailwindcss": "^4",
+    "typescript": "^5",
+    "vitest": "^5.0.5"
+  }
+}
