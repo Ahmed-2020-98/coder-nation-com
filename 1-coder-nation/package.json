@@ -4,15 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/gen-migrations.mjs && next build",
     "start": "next start",
     "lint": "eslint",
     "palette": "node scripts/palette.mjs",
     "typecheck": "tsc --noEmit",
+    "gen:migrations": "node scripts/gen-migrations.mjs",
     "db:migrate": "node scripts/migrate.mjs",
     "admin:create": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/create-admin.mjs",
     "test": "vitest run",
-    "build:webpack": "TAILWIND_POSTCSS=1 next build --webpack"
+    "build:webpack": "node scripts/gen-migrations.mjs && TAILWIND_POSTCSS=1 next build --webpack"
   },
   "dependencies": {
     "lucide-react": "^1.63.0",
