@@ -19,12 +19,12 @@ export function renderProposalPdf(proposalId: string, sessionToken: string, numb
   return run;
 }
 
-/** On Vercel there is no installed Chrome: a Chromium build made for Lambda ships with the function. Elsewhere, the Chrome on the machine. */
+/** Where no Chrome is installed (Vercel, shared hosting) PDF_CHROMIUM=bundled uses the Chromium build that ships with the app. Elsewhere, the Chrome on the machine. */
 async function launchBrowser() {
   const fail = (error: unknown): never => {
     throw new PdfError(`تعذّر تشغيل Chrome: ${error instanceof Error ? error.message.slice(0, 160) : "خطأ غير معروف"}`);
   };
-  if (process.env.VERCEL) {
+  if (process.env.VERCEL || process.env.PDF_CHROMIUM === "bundled") {
     const { default: chromium } = await import("@sparticuz/chromium");
     return puppeteer
       .launch({ executablePath: await chromium.executablePath(), headless: "shell", args: [...chromium.args, "--font-render-hinting=none"], timeout: 30_000 })
