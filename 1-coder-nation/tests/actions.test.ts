@@ -85,7 +85,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await raw`truncate leads, sessions, admins, rate_limits, settings restart identity cascade`;
+  await raw`truncate leads, sessions, admins, rate_limits, settings, media restart identity cascade`;
   cookieJar.clear();
   updatedTags.length = 0;
   for (const key of [...requestHeaders.keys()]) requestHeaders.delete(key);
@@ -254,5 +254,108 @@ describe("CSV export route", () => {
     expect(closed).not.toContain("HYPERLINK");
     const bogus = await (await GET(request("?status=weird&q=%25"))).text();
     expect(bogus.trim().split("\r\n")).toHaveLength(1); // unknown status is ignored, "%" matches nothing
+  });
+});
+
+describe("page content: actions, image upload and the public image route", () => {
+  const actions = () => import("@/app/(admin)/admin/(panel)/content/actions");
+  const uploadRoute = () => import("@/app/(admin)/admin/(panel)/content/upload/route");
+  const mediaRoute = () => import("@/app/media/[id]/route");
+  const hero = async () => ((await import("@/lib/content-model")).defaultsFor("hero") as Record<string, unknown>);
+
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5, 6, 7, 8];
+  const upload = (parts: BlobPart[] | null, headers: Record<string, string> = {}, type = "image/png") => {
+    const body = new FormData();
+    if (parts) body.set("file", new File(parts, "shot.png", { type }));
+    return new Request("http://localhost/admin/content/upload", { method: "POST", body, headers });
+  };
+  async function signIn() {
+    await raw`insert into admins (email, password_hash) values ('boss@codernation.com', ${await m.password.hashPassword("a long enough password")}) on conflict do nothing`;
+    await redirectTarget(() => m.admin.loginAction(null, form({ email: "boss@codernation.com", password: "a long enough password" })));
+    expect(cookieJar.get("cn_admin")).toBeTruthy();
+  }
+
+  it("EVERY content action and the upload route refuse without a session, and change nothing", async () => {
+    const { saveSectionAction, resetSectionAction, setSectionHiddenAction } = await actions();
+    expect(await redirectTarget(async () => saveSectionAction("hero", await hero()))).toBe("/admin/login");
+    expect(await redirectTarget(() => resetSectionAction("hero"))).toBe("/admin/login");
+    expect(await redirectTarget(() => setSectionHiddenAction("work", true))).toBe("/admin/login");
+    const { POST } = await uploadRoute();
+    const response = await POST(upload([new Uint8Array(PNG)]));
+    expect(response.status).toBe(401);
+    expect(await raw`select 1 from settings`).toHaveLength(0);
+    expect(await raw`select 1 from media`).toHaveLength(0);
+    expect(updatedTags).toEqual([]);
+  });
+
+  it("with a session: saves a section and refreshes the site's cache; bad input gets field errors and nothing is saved", async () => {
+    await signIn();
+    const { saveSectionAction, resetSectionAction, setSectionHiddenAction } = await actions();
+    const edited = { ...(await hero()), badge: "نستقبل مشاريع جديدة هذا الشهر" };
+    expect(await saveSectionAction("hero", edited)).toEqual({ ok: true });
+    expect(updatedTags).toEqual(["content"]);
+    expect((await raw`select value from settings where key = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
+
+    updatedTags.length = 0;
+    const bad = await saveSectionAction("hero", { ...edited, titleLead: "", primaryCta: { label: "x", href: "javascript:alert(1)" } });
+    expect(bad).toMatchObject({ ok: false, fieldErrors: { titleLead: expect.any(String), "primaryCta.href": expect.any(String) } });
+    expect(updatedTags).toEqual([]);
+    expect((await raw`select value from settings where key = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
+
+    expect(await saveSectionAction("../../etc/passwd", edited)).toMatchObject({ ok: false });
+    expect(await saveSectionAction("__proto__", edited)).toMatchObject({ ok: false });
+    expect(await setSectionHiddenAction("contact", true)).toMatchObject({ ok: false });
+    expect(await setSectionHiddenAction("work", true)).toEqual({ ok: true });
+    expect(await resetSectionAction("hero")).toEqual({ ok: true });
+    expect((await raw`select value from settings where key = 'content'`)[0].value).toEqual({ sections: {}, hidden: ["work"] });
+    expect(updatedTags.filter((tag) => tag === "content")).toHaveLength(2);
+  });
+
+  it("upload: takes a real image, refuses disguised files, big ones, other sites' requests and empty forms", async () => {
+    await signIn();
+    const { POST } = await uploadRoute();
+
+    const ok = await POST(upload([new Uint8Array(PNG)]));
+    expect(ok.status).toBe(200);
+    const { id } = (await ok.json()) as { id: string };
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+
+    // A script renamed .png with an image type is still refused: the file's own bytes decide.
+    const disguised = await POST(upload(["<svg xmlns='http://www.w3.org/2000/svg'><script>alert(1)</script></svg>"]));
+    expect(disguised.status).toBe(400);
+    expect(await disguised.json()).toHaveProperty("error");
+
+    const huge = await POST(upload([new Uint8Array(PNG)], { "content-length": String(10 * 1024 * 1024) }));
+    expect(huge.status).toBe(413);
+
+    const crossSite = await POST(upload([new Uint8Array(PNG)], { "sec-fetch-site": "cross-site" }));
+    expect(crossSite.status).toBe(403);
+    const sameSite = await POST(upload([new Uint8Array(PNG)], { "sec-fetch-site": "same-origin" }));
+    expect(sameSite.status).toBe(200);
+
+    expect((await POST(upload(null))).status).toBe(400);
+    expect(await raw`select 1 from media`).toHaveLength(2); // only the two good uploads
+  });
+
+  it("the public image route: serves the stored bytes with long-lived caching and safe headers, 304s on a repeat, 404s on anything else", async () => {
+    const { GET } = await mediaRoute();
+    const [{ id }] = await raw`insert into media (mime, data, size_bytes) values ('image/png', ${Buffer.from(PNG)}, ${PNG.length}) returning id`;
+    const get = (value: string, headers: Record<string, string> = {}) => GET(new Request(`http://localhost/media/${value}`, { headers }), { params: Promise.resolve({ id: value }) });
+
+    const response = await get(id);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("image/png");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("content-security-policy")).toContain("sandbox");
+    expect([...new Uint8Array(await response.arrayBuffer())]).toEqual(PNG);
+
+    const repeat = await get(id, { "if-none-match": response.headers.get("etag") as string });
+    expect(repeat.status).toBe(304);
+
+    for (const bad of ["not-a-uuid", "00000000-0000-4000-8000-000000000000", "..%2F..%2Fetc%2Fpasswd", "1; drop table media"]) {
+      expect((await get(bad)).status, bad).toBe(404);
+    }
   });
 });

@@ -1,7 +1,11 @@
 // =====================================================================
 // Arabic copy for the whole site. ALL visible text lives in this file.
 //
-// Status: TEMPORARY placeholder copy — edit freely.
+// This is the text the site SHIPS with. The sections listed in src/lib/content-spec.ts can be edited from the admin
+// panel (/admin/content); what is saved there is laid over this file when the page renders (src/lib/content-model.ts),
+// and "reset to default" returns to exactly what is below. Everything not in that list is read from here only.
+//
+// Status: TEMPORARY placeholder copy — replace it from the admin panel (or edit freely here).
 // Adding English later: create `en.ts` with the same shape (type it as `SiteContent`)
 // and register it in ./index.ts. Components never hard-code text.
 // =====================================================================
@@ -200,14 +204,15 @@ export const ar = {
     title: "مشاريع نفخر بها",
     description: "نماذج من أنواع المشاريع التي نبنيها. المحتوى الحالي مؤقت وسيُستبدل بأعمالنا الفعلية.",
     placeholderBadge: "نموذج مؤقت",
+    visitLabel: "زيارة المشروع",
     items: [
-      { art: "browser", category: "موقع شركة", title: "مشروع تجريبي ١", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Tailwind"] },
-      { art: "phone", category: "تطبيق موبايل", title: "مشروع تجريبي ٢", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Flutter", "Firebase"] },
-      { art: "dashboard", category: "لوحة تحكم", title: "مشروع تجريبي ٣", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["React", "Charts"] },
-      { art: "browser", category: "متجر إلكتروني", title: "مشروع تجريبي ٤", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Payments"] },
-      { art: "phone", category: "تصميم UI/UX", title: "مشروع تجريبي ٥", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Figma", "Prototype"] },
-      { art: "dashboard", category: "منصة خدمات", title: "مشروع تجريبي ٦", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["TypeScript", "API"] },
-    ] as { art: "browser" | "phone" | "dashboard"; category: string; title: string; text: string; tags: string[] }[],
+      { art: "browser", category: "موقع شركة", title: "مشروع تجريبي ١", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Tailwind"], link: "", image: "", sample: true },
+      { art: "phone", category: "تطبيق موبايل", title: "مشروع تجريبي ٢", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Flutter", "Firebase"], link: "", image: "", sample: true },
+      { art: "dashboard", category: "لوحة تحكم", title: "مشروع تجريبي ٣", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["React", "Charts"], link: "", image: "", sample: true },
+      { art: "browser", category: "متجر إلكتروني", title: "مشروع تجريبي ٤", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Payments"], link: "", image: "", sample: true },
+      { art: "phone", category: "تصميم UI/UX", title: "مشروع تجريبي ٥", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Figma", "Prototype"], link: "", image: "", sample: true },
+      { art: "dashboard", category: "منصة خدمات", title: "مشروع تجريبي ٦", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["TypeScript", "API"], link: "", image: "", sample: true },
+    ] as { art: "browser" | "phone" | "dashboard"; category: string; title: string; text: string; tags: string[]; link: string; image: string; sample: boolean }[],
   },
 
   testimonials: {
@@ -269,7 +274,7 @@ export const ar = {
       message: "مرحبًا Coder Nation، أرغب في الاستفسار عن مشروع.",
     },
     info: [
-      { icon: "mail", label: "البريد الإلكتروني", value: "hello@codernation.com" },
+      { icon: "mail", label: "البريد الإلكتروني", value: "hello@coder-nation.com" },
       { icon: "clock", label: "ساعات العمل", value: "الأحد – الخميس، ٩ صباحًا – ٦ مساءً" },
     ],
     form: {

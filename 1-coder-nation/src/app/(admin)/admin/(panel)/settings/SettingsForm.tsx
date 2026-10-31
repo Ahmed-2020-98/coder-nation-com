@@ -17,7 +17,7 @@ const SOCIAL_LABEL: Record<(typeof SOCIAL_KEYS)[number], string> = {
   tiktok: "TikTok",
   youtube: "YouTube",
 };
-const ECOSYSTEM_LABEL = { marketing: "التسويق (marketing.codernation.com)", sales: "المبيعات (sales.codernation.com)", crm: "إدارة العملاء (crm.codernation.com)" } as const;
+const ECOSYSTEM_LABEL = { marketing: "التسويق (marketing.coder-nation.com)", sales: "المبيعات (sales.coder-nation.com)", crm: "إدارة العملاء (crm.coder-nation.com)" } as const;
 
 function Section({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (

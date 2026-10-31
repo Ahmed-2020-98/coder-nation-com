@@ -15,7 +15,7 @@ export type EcosystemLink = {
 };
 
 export const ecosystem: EcosystemLink[] = [
-  { id: "marketing", href: "https://marketing.codernation.com", enabled: false },
-  { id: "sales", href: "https://sales.codernation.com", enabled: false },
-  { id: "crm", href: "https://crm.codernation.com", enabled: false },
+  { id: "marketing", href: "https://marketing.coder-nation.com", enabled: false },
+  { id: "sales", href: "https://sales.coder-nation.com", enabled: false },
+  { id: "crm", href: "https://crm.coder-nation.com", enabled: false },
 ];

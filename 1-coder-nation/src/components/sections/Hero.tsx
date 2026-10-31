@@ -1,13 +1,13 @@
 import type { CSSProperties } from "react";
-import { content } from "@/content";
+import type { SiteContent } from "@/content";
 import { ArrowIcon } from "@/components/icons";
 import { Button } from "@/components/ui/Button";
 import { HeroVisual } from "./HeroVisual";
 
 const delay = (ms: number) => ({ "--d": `${ms}ms` }) as CSSProperties;
 
-export function Hero() {
-  const { hero } = content;
+/** `hidden` = the sections that are not on the page: a button that points at one of them is left out. */
+export function Hero({ hero, showSecondary }: { hero: SiteContent["hero"]; showSecondary: boolean }) {
 
   return (
     <section
@@ -66,9 +66,11 @@ export function Hero() {
               {hero.primaryCta.label}
               <ArrowIcon className="size-4 transition-transform duration-(--duration-base) group-hover:translate-x-1 rtl:group-hover:-translate-x-1" />
             </Button>
-            <Button href={hero.secondaryCta.href} variant="secondary" size="lg">
-              {hero.secondaryCta.label}
-            </Button>
+            {showSecondary ? (
+              <Button href={hero.secondaryCta.href} variant="secondary" size="lg">
+                {hero.secondaryCta.label}
+              </Button>
+            ) : null}
           </div>
 
           <div className="rise mt-12" style={delay(500)}>

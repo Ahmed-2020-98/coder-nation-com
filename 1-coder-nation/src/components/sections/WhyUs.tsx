@@ -1,12 +1,11 @@
 import { GitCompare } from "lucide-react";
-import { content } from "@/content";
+import type { SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
 import { DynamicIcon } from "@/components/icons";
 import { Reveal } from "@/components/Reveal";
 import { Section, SectionHeader } from "@/components/ui/Section";
 
-export function WhyUs() {
-  const { why } = content;
+export function WhyUs({ data: why, index }: { data: SiteContent["why"]; index: string }) {
 
   return (
     <Section id="why" tone="navy" labelledBy="why-title">
@@ -17,7 +16,7 @@ export function WhyUs() {
 
       <SectionHeader
         id="why-title"
-        index={why.index}
+        index={index}
         eyebrow={why.eyebrow}
         title={why.title}
         description={why.description}
@@ -63,7 +62,7 @@ export function WhyUs() {
 
         <ul className="grid gap-4 sm:grid-cols-2">
           {why.reasons.map((reason, i) => (
-            <Reveal as="li" key={reason.title} delay={i * 80}>
+            <Reveal as="li" key={`${i}-${reason.title}`} delay={i * 80}>
               <div className="h-full rounded-xl border border-line bg-surface/60 p-5 transition-colors duration-(--duration-base) hover:border-accent">
                 <span className="grid size-11 place-items-center rounded-lg bg-accent-soft text-accent">
                   <DynamicIcon name={reason.icon} className="size-5" />

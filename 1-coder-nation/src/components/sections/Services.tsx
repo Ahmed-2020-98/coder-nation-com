@@ -1,15 +1,14 @@
 import { Check } from "lucide-react";
-import { content } from "@/content";
+import type { SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
 import { ArrowIcon, DynamicIcon } from "@/components/icons";
 import { Reveal } from "@/components/Reveal";
 import { Section, SectionHeader } from "@/components/ui/Section";
 
-// Asymmetric bento: wide / narrow, then narrow / wide.
+// Asymmetric bento: wide / narrow, then narrow / wide, repeating for however many services there are.
 const spans = ["lg:col-span-7", "lg:col-span-5", "lg:col-span-5", "lg:col-span-7"];
 
-export function Services() {
-  const { services } = content;
+export function Services({ data: services, index }: { data: SiteContent["services"]; index: string }) {
 
   return (
     <Section id="services" tone="light" labelledBy="services-title">
@@ -17,7 +16,7 @@ export function Services() {
 
       <SectionHeader
         id="services-title"
-        index={services.index}
+        index={index}
         eyebrow={services.eyebrow}
         title={services.title}
         description={services.description}
@@ -27,7 +26,7 @@ export function Services() {
         {services.items.map((item, i) => {
           const featured = i === 0;
           return (
-            <Reveal as="li" key={item.file} delay={i * 90} className={spans[i]}>
+            <Reveal as="li" key={`${i}-${item.title}`} delay={i * 90} className={spans[i % spans.length]}>
               {/* The featured card flips to the navy tokens locally, so the same classes work on both tones */}
               <article
                 data-tone={featured ? "navy" : undefined}

@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { LayoutDashboard, LogOut, Settings, Users } from "lucide-react";
+import { FilePen, LayoutDashboard, LogOut, Settings, Users } from "lucide-react";
 import { logoutAction } from "@/app/(admin)/admin/actions";
 import { cn } from "@/lib/cn";
 
 const NAV = [
   { href: "/admin", label: "نظرة عامة", icon: LayoutDashboard },
   { href: "/admin/leads", label: "طلبات العملاء", icon: Users },
+  { href: "/admin/content", label: "محتوى الموقع", icon: FilePen },
   { href: "/admin/settings", label: "إعدادات الموقع", icon: Settings },
 ] as const;
 

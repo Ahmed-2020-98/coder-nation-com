@@ -27,7 +27,7 @@ beforeAll(async () => {
   process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
   raw = postgres(process.env.DATABASE_URL, { max: 2, onnotice: () => {} });
-  expect(await migrate(raw)).toEqual(["001_init.sql"]);
+  expect(await migrate(raw)).toEqual(["001_init.sql", "002_media.sql"]);
   expect(await migrate(raw)).toEqual([]); // idempotent
   vi.resetModules();
   m.db = await import("@/server/db");
@@ -47,7 +47,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await raw`truncate leads, sessions, admins, rate_limits, settings restart identity cascade`;
+  await raw`truncate leads, sessions, admins, rate_limits, settings, media restart identity cascade`;
 });
 
 const input = (over: Partial<import("@/server/leads").LeadInput> = {}) => ({

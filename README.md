@@ -21,7 +21,7 @@
 - **المستخدمين:** فريق Coder Nation بس (Single-tenant). بوابة العملاء مشروع منفصل لاحقًا.
 - **الـ CRM هو مصدر الحقيقة** من لحظة ما Lead يتعمل. الـ Agents مبتكلمش بعض مباشرة: بتقرا وتكتب في الـ CRM بصلاحيات محددة وبأحداث (`lead.created` ← `lead.qualified` ← `deal.won` ← `project.started` ← `project.delivered`).
 - **الـ Stack النهائي:** Next.js (TypeScript) على Vercel + AI SDK عن طريق AI Gateway + Workflow للـ Agents الطويلة وطابور الموافقات + Postgres.
-- **الدومينات:** `codernation.com` موقع تعريفي بس. الـ Agents على `marketing.` و`sales.` و`crm.` تحت نفس الدومين، بـ SSO واحد.
+- **الدومينات:** `coder-nation.com` موقع تعريفي بس. الـ Agents على `marketing.` و`sales.` و`crm.` تحت نفس الدومين، بـ SSO واحد.
 
 ### رحلة العميل
 

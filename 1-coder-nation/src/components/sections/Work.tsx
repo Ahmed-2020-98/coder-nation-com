@@ -1,4 +1,5 @@
-import { content } from "@/content";
+import { ExternalLink } from "lucide-react";
+import { content, type SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
 import { Reveal } from "@/components/Reveal";
 import { Badge } from "@/components/ui/Badge";
@@ -112,14 +113,13 @@ const arts: Record<ArtKind, () => React.JSX.Element> = {
   dashboard: DashboardArt,
 };
 
-export function Work() {
-  const { work } = content;
+export function Work({ data: work, index }: { data: SiteContent["work"]; index: string }) {
 
   return (
     <Section id="work" tone="navy" labelledBy="work-title">
       <SectionHeader
         id="work-title"
-        index={work.index}
+        index={index}
         eyebrow={work.eyebrow}
         title={work.title}
         description={work.description}
@@ -129,18 +129,32 @@ export function Work() {
         {work.items.map((item, i) => {
           const Art = arts[item.art];
           return (
-            <Reveal as="li" key={item.title} delay={(i % 3) * 90}>
+            <Reveal as="li" key={`${i}-${item.title}`} delay={(i % 3) * 90}>
               <article className="group/card flex h-full flex-col overflow-hidden rounded-xl border border-line bg-surface transition-[transform,border-color,box-shadow] duration-(--duration-base) ease-(--ease-out-expo) hover:-translate-y-1 hover:border-accent hover:shadow-glow">
                 <div className={cn("relative aspect-[4/3] overflow-hidden bg-gradient-to-br", gradients[i % gradients.length])}>
-                  <span className="absolute start-3 top-3 z-10 rounded-full border border-white/25 bg-black/30 px-3 py-0.5 text-xs leading-6 font-medium text-white backdrop-blur">
-                    {work.placeholderBadge}
-                  </span>
-                  <div
-                    aria-hidden="true"
-                    className="absolute inset-0 transition-transform duration-700 ease-(--ease-out-expo) group-hover/card:scale-[1.04]"
-                  >
-                    <Art />
-                  </div>
+                  {item.sample ? (
+                    <span className="absolute start-3 top-3 z-10 rounded-full border border-white/25 bg-black/30 px-3 py-0.5 text-xs leading-6 font-medium text-white backdrop-blur">
+                      {work.placeholderBadge}
+                    </span>
+                  ) : null}
+                  {item.image ? (
+                    // A plain <img>: the file is served by our own /media route from the database, which next/image's optimizer would only duplicate.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`/media/${item.image}`}
+                      alt={item.title}
+                      loading="lazy"
+                      decoding="async"
+                      className="absolute inset-0 size-full object-cover transition-transform duration-700 ease-(--ease-out-expo) group-hover/card:scale-[1.04]"
+                    />
+                  ) : (
+                    <div
+                      aria-hidden="true"
+                      className="absolute inset-0 transition-transform duration-700 ease-(--ease-out-expo) group-hover/card:scale-[1.04]"
+                    >
+                      <Art />
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex flex-1 flex-col p-6">
@@ -149,6 +163,18 @@ export function Work() {
                   </Badge>
                   <h3 className="mt-3 text-lg font-bold">{item.title}</h3>
                   <p className="mt-1.5 text-[0.95rem] text-ink-muted">{item.text}</p>
+                  {item.link ? (
+                    <a
+                      href={item.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-4 inline-flex min-h-9 w-fit items-center gap-1.5 text-sm font-semibold text-accent hover:underline"
+                    >
+                      {work.visitLabel}
+                      <ExternalLink aria-hidden="true" className="size-3.5 rtl:-scale-x-100" />
+                      <span className="sr-only">{content.a11y.newTab}</span>
+                    </a>
+                  ) : null}
                   <ul className="mt-auto flex flex-wrap gap-2 pt-5" dir="ltr">
                     {item.tags.map((tag) => (
                       <li key={tag}>

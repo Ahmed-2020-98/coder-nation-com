@@ -9,23 +9,40 @@ import { Faq } from "@/components/sections/Faq";
 import { Contact } from "@/components/sections/Contact";
 import { Footer } from "@/components/sections/Footer";
 import { OrganizationJsonLd } from "@/components/OrganizationJsonLd";
+import { isLinkHidden, visibleLinks } from "@/lib/content-model";
+import type { SectionId } from "@/lib/content-spec";
+import { getSiteView } from "@/server/content";
 
-export default function Home() {
+/**
+ * The page text comes from the database (what the admin saved in "محتوى الموقع") laid over the text in the code, and is
+ * cached until the next save. A section switched off, or left with nothing to show, is skipped together with every
+ * menu / footer / button link that pointed at it, and the "// 01" numbers close up around it.
+ */
+export default async function Home() {
+  const { content, hidden, indexes } = await getSiteView();
+  const shown = (id: SectionId) => !hidden.includes(id);
+  const at = (id: SectionId) => indexes[id] ?? "";
+
+  const footer = {
+    ...content.footer,
+    columns: content.footer.columns.map((column) => ({ ...column, links: visibleLinks(column.links, hidden) })),
+  };
+
   return (
     <>
       <OrganizationJsonLd />
-      <Navbar />
+      <Navbar nav={{ ...content.nav, links: visibleLinks(content.nav.links, hidden) }} />
       <main id="main">
-        <Hero />
-        <Services />
-        <WhyUs />
-        <Process />
-        <Work />
-        <Testimonials />
-        <Faq />
-        <Contact />
+        <Hero hero={content.hero} showSecondary={!isLinkHidden(content.hero.secondaryCta.href, hidden)} />
+        {shown("services") ? <Services data={content.services} index={at("services")} /> : null}
+        {shown("why") ? <WhyUs data={content.why} index={at("why")} /> : null}
+        {shown("process") ? <Process data={content.process} index={at("process")} /> : null}
+        {shown("work") ? <Work data={content.work} index={at("work")} /> : null}
+        {shown("testimonials") ? <Testimonials data={content.testimonials} index={at("testimonials")} /> : null}
+        {shown("faq") ? <Faq data={content.faq} index={at("faq")} /> : null}
+        <Contact data={content.contact} index={at("contact")} />
       </main>
-      <Footer />
+      <Footer footer={footer} />
     </>
   );
 }

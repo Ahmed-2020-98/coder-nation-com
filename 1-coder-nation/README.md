@@ -25,10 +25,15 @@ npm run dev                         # http://localhost:3000  ·  اللوحة: h
 | `/admin` | عدّادات الطلبات وآخر الطلبات، وتحذير لو رقم الواتساب لسه المؤقت. |
 | `/admin/leads` | طلبات العملاء من فورم الموقع: فلتر بالحالة، بحث (اسم/هاتف/إيميل)، ترقيم صفحات، وتصدير CSV (بيتعقّم ضد الـ formulas وبـ BOM عشان Excel يقرا العربي). |
 | `/admin/leads/[id]` | التفاصيل، أزرار واتساب / اتصال / إيميل، الحالة (جديد / تم التواصل / مغلق)، ملاحظة داخلية، وحذف. |
+| `/admin/content` | **محتوى الموقع**: كل أقسام الصفحة الرئيسية (الواجهة، القائمة، الخدمات، لماذا نحن، طريقة العمل، أعمالنا، آراء العملاء، الأسئلة الشائعة، التواصل، الفوتر) مع حالة كل قسم (معدّل / النص الافتراضي / مخفي) وعدد عناصره. |
+| `/admin/content/[section]` | محرّر القسم: تعديل كل النصوص، وإضافة وحذف وترتيب العناصر (مشاريع، آراء، أسئلة، خدمات…)، ورفع صور المشاريع، وإخفاء القسم من الموقع، و«رجّع للافتراضي». **الحفظ بيظهر على الموقع فورًا.** |
 | `/admin/settings` | رقم الواتساب، الإيميل، ساعات العمل، السوشيال، عنوان ووصف الـ SEO، وروابط المنظومة. **التغيير بيظهر على الموقع فورًا.** |
 
 - مفيش أدمن افتراضي. بتعمله بـ `npm run admin:create` (و`--reset` لتغيير الباسورد وتسجيل الخروج من كل الأجهزة). الباسورد 12 حرف على الأقل.
-- تحديث نصوص الصفحة (Hero والخدمات والأسئلة…) من اللوحة **لسه مش موجود**، بتتعدّل من `src/content/ar.ts`.
+- **محتوى الصفحة** بيتعدّل من `/admin/content` (مش لازم تلمس الكود). اللي ما بيتعدّلش من اللوحة (لأن كود تاني معتمد على صياغته): شكل نافذة الكود في الـ Hero، وعناوين فورم التواصل ورسائل أخطائه، ونصوص إمكانية الوصول، واللوجو. دول في `src/content/ar.ts`.
+- النص المخزّن في القاعدة بيتحط **فوق** النص اللي في `ar.ts` (`computeView` في `src/lib/content-model.ts`). لو القاعدة مش شغالة أو القسم مفيهوش تعديل، الموقع بيعرض نص الكود، فمفيش صفحة بتقع بسببه.
+- قسم فاضي (مسحت كل الآراء مثلًا) أو متخفّي بيختفي من الموقع، وبتتشال معاه روابطه من القائمة والفوتر والأزرار، وأرقام الأقسام («// 01») بتتظبط من غير فجوات.
+- **صور المشاريع** بتتخزّن في القاعدة (جدول `media`) مش على الديسك، لأن الاستضافة بتمسح الملفات المرفوعة في كل Deploy. بتتصغّر في المتصفح قبل الرفع (حتى 1600px)، والسيرفر بيتأكد من نوع الملف من أول بايتاته (JPG / PNG / WebP بس، حتى 2 ميجا، ومفيش SVG)، وبتتقدّم من `/media/<id>` بكاش دائم. الصورة اللي اتشالت أو اتبدّلت بتتمسح من القاعدة بعد ساعة.
 
 ## فورم التواصل
 
@@ -46,20 +51,21 @@ npm run dev                         # http://localhost:3000  ·  اللوحة: h
 ## هيكل الملفات
 
 ```
-db/migrations/        SQL migrations (001_init.sql) · migrate.mjs
+db/migrations/        SQL migrations (001_init.sql، 002_media.sql) · migrate.mjs
 scripts/              migrate.mjs · create-admin.mjs · palette.mjs
 src/
 ├─ app/
 │  ├─ (site)/           الموقع العام: layout.tsx (root) · page.tsx · actions.ts (submitLead)
-│  ├─ (admin)/          لوحة التحكم: layout.tsx (root تاني) · admin/{login,(panel)/...} · actions.ts
+│  ├─ (admin)/          لوحة التحكم: layout.tsx (root تاني) · admin/{login,(panel)/{leads,settings,content/...}} · actions.ts
+│  ├─ media/[id]/       route.ts: بيقدّم الصور المرفوعة من القاعدة
 │  ├─ fonts.ts · globals.css · icon.svg · robots.ts · sitemap.ts
 ├─ proxy.ts             redirect تفاؤلي لـ /admin
-├─ server/              db · password · auth-core · session · rate-limit · leads · settings · request · env
+├─ server/              db · password · auth-core · session · rate-limit · leads · settings · content · media · request · env
 ├─ styles/tokens.css    كل الـ Design Tokens
 ├─ content/             ar.ts (كل النصوص) · index.ts
 ├─ config/              site.ts (قيم افتراضية) · ecosystem.ts
 ├─ components/          ui · sections · admin (AdminShell, ui/*) · Logo · Reveal · OrganizationJsonLd
-└─ lib/                 cn · lead-rules · lead-contact · csv · settings-shape · session-cookie
+└─ lib/                 cn · lead-rules · lead-contact · csv · settings-shape · session-cookie · content-spec · content-model · content-form · image-upload
 tests/                  unit + integration (Postgres مؤقتة بتتعمل وتتمسح)
 ```
 
@@ -68,7 +74,8 @@ tests/                  unit + integration (Postgres مؤقتة بتتعمل و�
 | المطلوب | المكان |
 |---|---|
 | رقم الواتساب والإيميل وساعات العمل والسوشيال والـ SEO وروابط المنظومة | `/admin/settings` |
-| أي نص في الموقع | `src/content/ar.ts` |
+| نصوص الأقسام وأعمالنا وآراء العملاء والأسئلة والخدمات | `/admin/content` |
+| النصوص اللي مش في اللوحة (فورم التواصل، نافذة الكود…) | `src/content/ar.ts` |
 | الألوان النهائية | `npm run palette -- --primary "#XXXXXX" --secondary "#YYYYYY"` |
 | لغة إنجليزية لاحقًا | `src/content/en.ts` بنفس شكل `ar.ts` وسجّله في `src/content/index.ts` |
 | الخطوط | `src/app/fonts.ts` |
@@ -87,4 +94,4 @@ tests/                  unit + integration (Postgres مؤقتة بتتعمل و�
 - كل قسم يحمل `tone="navy|light"` فيقلب الألوان الدلالية تلقائيًا (`text-ink`, `bg-surface`, `text-accent`, …).
 - أي عنصر جواه `data-tone` لازم يحدد لون النص بنفسه (`text-ink`)، لأن اللون بيتوارث محسوبًا من الأب مش من الـ tone الجديد.
 - الأنيميشن يحترم `prefers-reduced-motion`.
-- أعمالنا وآراء العملاء ورقم الواتساب الافتراضي **محتوى مؤقت** لسه.
+- أعمالنا وآراء العملاء ورقم الواتساب الافتراضي **محتوى مؤقت** لسه. بتتبدّل من `/admin/content` و`/admin/settings` من غير كود.

@@ -39,7 +39,7 @@ const typingEnd = TYPE_START + durations.reduce((sum, d) => sum + d + LINE_GAP_M
  */
 export function HeroVisual() {
   return (
-    <div aria-hidden="true" dir="ltr" className="relative mx-auto w-full max-w-[34rem] pb-14 lg:ms-auto">
+    <div aria-hidden="true" dir="ltr" className="relative mx-auto mt-10 w-full max-w-[34rem] pb-14 sm:mt-0 lg:ms-auto">
       <div className="absolute -inset-6 -z-10 rounded-[2.5rem] bg-primary-500/20 blur-3xl" />
 
       {/* Editor window */}
@@ -82,9 +82,9 @@ export function HeroVisual() {
         </pre>
       </figure>
 
-      {/* Build toast: overlaps the window's top edge */}
+      {/* Build toast: sits above the window on phones (it would cover the file tab), overlaps its top edge from sm up */}
       <div
-        className="pop-in absolute -top-5 end-3 rounded-lg border border-white/10 bg-secondary-900/95 px-3.5 py-2.5 font-mono text-xs shadow-window sm:end-8"
+        className="pop-in absolute -top-10 end-3 rounded-lg border border-white/10 bg-secondary-900/95 px-3.5 py-2.5 font-mono text-xs shadow-window sm:-top-5 sm:end-8"
         style={vars({ "--d": `${typingEnd + 250}ms` })}
       >
         <p className="text-secondary-300">

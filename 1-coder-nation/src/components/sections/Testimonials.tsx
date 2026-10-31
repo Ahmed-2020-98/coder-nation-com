@@ -1,17 +1,16 @@
 import { Quote, User } from "lucide-react";
-import { content } from "@/content";
+import type { SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
 import { Reveal } from "@/components/Reveal";
 import { Section, SectionHeader } from "@/components/ui/Section";
 
-export function Testimonials() {
-  const { testimonials } = content;
+export function Testimonials({ data: testimonials, index }: { data: SiteContent["testimonials"]; index: string }) {
 
   return (
     <Section id="testimonials" tone="light" labelledBy="testimonials-title">
       <SectionHeader
         id="testimonials-title"
-        index={testimonials.index}
+        index={index}
         eyebrow={testimonials.eyebrow}
         title={testimonials.title}
         description={testimonials.description}

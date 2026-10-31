@@ -1,4 +1,4 @@
-import { content } from "@/content";
+import { content, type SiteContent } from "@/content";
 import { whatsappUrl } from "@/config/site";
 import { getSiteSettings } from "@/server/settings";
 import { contactRows } from "@/server/site-links";
@@ -8,8 +8,8 @@ import { Button } from "@/components/ui/Button";
 import { Section, SectionHeader } from "@/components/ui/Section";
 import { ContactForm } from "./ContactForm";
 
-export async function Contact() {
-  const { contact, a11y } = content;
+export async function Contact({ data: contact, index }: { data: SiteContent["contact"]; index: string }) {
+  const { a11y } = content;
   const settings = await getSiteSettings();
 
   return (
@@ -21,7 +21,7 @@ export async function Contact() {
         <div>
           <SectionHeader
             id="contact-title"
-            index={contact.index}
+            index={index}
             eyebrow={contact.eyebrow}
             title={contact.title}
             description={contact.description}

@@ -1,5 +1,5 @@
 import { ArrowUp } from "lucide-react";
-import { content } from "@/content";
+import { content, type SiteContent } from "@/content";
 import { ecosystem } from "@/config/ecosystem";
 import { Logo } from "@/components/Logo";
 import { getSiteSettings, SOCIAL_KEYS } from "@/server/settings";
@@ -11,8 +11,8 @@ async function CurrentYear() {
   return new Date().getFullYear();
 }
 
-export async function Footer() {
-  const { footer } = content;
+/** `footer.columns` arrive already without the links to sections that are not on the page. */
+export async function Footer({ footer }: { footer: SiteContent["footer"] }) {
   const settings = await getSiteSettings();
   // Only the links switched on in the admin panel (default: src/config/ecosystem.ts, none yet) are shown.
   const apps = ecosystem.filter((app) => settings.ecosystem[app.id]);

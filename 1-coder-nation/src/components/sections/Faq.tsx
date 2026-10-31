@@ -1,12 +1,11 @@
-import { content } from "@/content";
+import type { SiteContent } from "@/content";
 import { Reveal } from "@/components/Reveal";
 import { Button } from "@/components/ui/Button";
 import { ArrowIcon } from "@/components/icons";
 import { Section, SectionHeader } from "@/components/ui/Section";
 import { FaqList } from "./FaqList";
 
-export function Faq() {
-  const { faq } = content;
+export function Faq({ data: faq, index }: { data: SiteContent["faq"]; index: string }) {
 
   return (
     <Section id="faq" tone="light" alt labelledBy="faq-title">
@@ -14,7 +13,7 @@ export function Faq() {
         <div className="lg:sticky lg:top-28 lg:self-start">
           <SectionHeader
             id="faq-title"
-            index={faq.index}
+            index={index}
             eyebrow={faq.eyebrow}
             title={faq.title}
             description={faq.description}

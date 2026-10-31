@@ -104,7 +104,7 @@ describe("lead contact helpers", () => {
 describe("site settings", () => {
   const valid = {
     whatsappNumber: "+20 100 123 4567",
-    email: "hello@codernation.com",
+    email: "hello@coder-nation.com",
     workingHours: "الأحد – الخميس",
     socials: { linkedin: "https://linkedin.com/company/x", x: "", instagram: "", github: "", tiktok: "", youtube: "" },
     seo: { title: "Coder Nation | مواقع وتطبيقات", description: "نصمّم ونبرمج مواقع وتطبيقات موبايل بجودة عالية وأداء ممتاز." },
@@ -134,7 +134,7 @@ describe("site settings", () => {
   });
   it("defaults come from the code: the placeholder WhatsApp, the ar.ts contact rows, all ecosystem links off", () => {
     expect(DEFAULT_SETTINGS.whatsappNumber).toBe("201000000000");
-    expect(DEFAULT_SETTINGS.email).toBe("hello@codernation.com");
+    expect(DEFAULT_SETTINGS.email).toBe("hello@coder-nation.com");
     expect(Object.values(DEFAULT_SETTINGS.ecosystem).every((on) => on === false)).toBe(true);
   });
 });

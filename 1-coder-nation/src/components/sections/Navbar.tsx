@@ -2,15 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Menu, X } from "lucide-react";
-import { content } from "@/content";
+import { content, type SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
 
-const sectionIds = content.nav.links.map((link) => link.href.slice(1));
-
-export function Navbar() {
-  const { nav, a11y } = content;
+export function Navbar({ nav }: { nav: SiteContent["nav"] }) {
+  const { a11y } = content;
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [active, setActive] = useState("");
@@ -24,8 +22,10 @@ export function Navbar() {
 
   // Highlights the link of the section currently crossing the middle of the viewport.
   useEffect(() => {
-    const targets = sectionIds
-      .map((id) => document.getElementById(id))
+    // Only the links that point at a section on this page (#services...) can be "the current section".
+    const targets = nav.links
+      .filter((link) => link.href.startsWith("#"))
+      .map((link) => document.getElementById(link.href.slice(1)))
       .filter((el): el is HTMLElement => el !== null);
     const io = new IntersectionObserver(
       (entries) => {
@@ -37,7 +37,7 @@ export function Navbar() {
     );
     targets.forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, []);
+  }, [nav.links]);
 
   // Escape closes the mobile menu.
   useEffect(() => {
