@@ -20,7 +20,7 @@
 - **الاستقلالية حسب الخطورة:** الأفعال الداخلية (تحليل، تصنيف، تحديث CRM) بتتنفّذ أوتوماتيك. الأفعال الخارجية (رسالة لعميل، نشر، إرسال عرض، Deploy) بتعدّي على **طابور موافقات** (Approval Queue) لحد ما تتفتح الاستقلالية لكل فعل لوحده.
 - **المستخدمين:** فريق Coder Nation بس (Single-tenant). بوابة العملاء مشروع منفصل لاحقًا.
 - **الـ CRM هو مصدر الحقيقة** من لحظة ما Lead يتعمل. الـ Agents مبتكلمش بعض مباشرة: بتقرا وتكتب في الـ CRM بصلاحيات محددة وبأحداث (`lead.created` ← `lead.qualified` ← `deal.won` ← `project.started` ← `project.delivered`).
-- **الـ Stack النهائي:** Next.js (TypeScript) على Vercel + AI SDK عن طريق AI Gateway + Workflow للـ Agents الطويلة وطابور الموافقات + Postgres.
+- **الـ Stack النهائي:** Next.js (TypeScript) على Vercel + AI SDK عن طريق AI Gateway + Workflow للـ Agents الطويلة وطابور الموافقات + MySQL (على Hostinger دلوقتي).
 - **الدومينات:** `coder-nation.com` موقع تعريفي بس. الـ Agents على `marketing.` و`sales.` و`crm.` تحت نفس الدومين، بـ SSO واحد.
 
 ### رحلة العميل
@@ -45,10 +45,10 @@ Lead جديد في الـ CRM            ← lead.created
 
 | المجلد | إيه هو | التشغيل |
 |---|---|---|
-| [`1-coder-nation`](1-coder-nation) | الموقع التعريفي + لوحة تحكم `/admin` لطلبات العملاء وإعدادات الموقع (Next.js 16 + Tailwind v4 + Postgres، عربي RTL). النصوص الأخيرة لسه مؤقتة. | `npm install` ثم الإعداد في [README بتاعه](1-coder-nation/README.md) ثم `npm run dev` على `http://localhost:3000` |
+| [`1-coder-nation`](1-coder-nation) | الموقع التعريفي + لوحة تحكم `/admin` لطلبات العملاء وإعدادات الموقع (Next.js 16 + Tailwind v4 + MySQL، عربي RTL). النصوص الأخيرة لسه مؤقتة. | `npm install` ثم الإعداد في [README بتاعه](1-coder-nation/README.md) ثم `npm run dev` على `http://localhost:3000` |
 | [`2-marketing-agent`](2-marketing-agent) | Marketing Agent لمحتوى TikTok: Orchestrator (`CLAUDE.md`) + 4 Sub-Agents في `.claude/agents/` (Research / Script / Montage / Posting) + ملفات الأسلوب `marketing/style/` | افتح `claude` جوه المجلد (أول مرة اقبل الـ workspace trust) |
 | [`3-marketing-dashboard`](3-marketing-dashboard) | Dashboard عربي لتشغيل الـ Agents ومتابعة كل فيديو في Pipeline (Next.js 16 + Claude Agent SDK) | `npm install && npm run dev` على `http://127.0.0.1:3010`، والتفاصيل في [README بتاعه](3-marketing-dashboard/README.md) |
-| [`4-ops`](4-ops) | النظام الداخلي للفريق: حسابات وأدوار (مالك / مدير / موظف) + CRM + عروض فنية ومالية بـ PDF + مهام ومشاريع + حضور وانصراف. طلبات الموقع بتوصله تلقائيًا بتوقيع HMAC (Next.js 16 + Postgres) | الإعداد في [README بتاعه](4-ops/README.md) ثم `npm run dev` على `http://localhost:3020` |
+| [`4-ops`](4-ops) | النظام الداخلي للفريق: حسابات وأدوار (مالك / مدير / موظف) + CRM + عروض فنية ومالية بـ PDF + مهام ومشاريع + حضور وانصراف. طلبات الموقع بتوصله تلقائيًا بتوقيع HMAC (Next.js 16 + MySQL) | الإعداد في [README بتاعه](4-ops/README.md) ثم `npm run dev` على `http://localhost:3020` |
 
 ## الوضع الحالي
 

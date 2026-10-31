@@ -2,13 +2,15 @@
 -- replaces its files on every deploy, and a database backup then covers the images too.
 
 create table media (
-  id uuid primary key default gen_random_uuid(),
-  mime text not null check (mime in ('image/jpeg', 'image/png', 'image/webp')),
-  data bytea not null,
-  size_bytes integer not null check (size_bytes between 1 and 2097152),
-  created_at timestamptz not null default now(),
-  check (octet_length(data) = size_bytes)
-);
-create index media_created_idx on media (created_at);
+  id char(36) not null primary key default (uuid()),
+  mime varchar(20) not null,
+  data mediumblob not null,
+  size_bytes int not null,
+  created_at datetime(3) not null default current_timestamp(3),
+  constraint media_mime_ok check (mime in ('image/jpeg', 'image/png', 'image/webp')),
+  constraint media_size_ok check (size_bytes between 1 and 2097152),
+  constraint media_size_matches check (octet_length(data) = size_bytes),
+  index media_created_idx (created_at)
+) default charset utf8mb4 collate utf8mb4_unicode_ci;
 
--- The editable page texts are one more JSON document in `settings`, under the key 'content' (validated by the app).
+-- The editable page texts are one more JSON document in `settings`, under the name 'content' (validated by the app).

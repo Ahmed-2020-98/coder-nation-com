@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { content } from "@/content";
 import { EMAIL_RE, LEAD_LIMITS, LEAD_STATUSES, PHONE_RE, normalizePhone, type LeadStatus } from "@/lib/lead-rules";
@@ -82,31 +83,31 @@ export function parseLeadInput(raw: Record<string, unknown>): LeadParse {
 }
 
 export async function createLead(input: LeadInput, meta: { ipHash: string | null; userAgent: string | null }): Promise<string> {
-  const [row] = await sql()<{ id: string }[]>`
-    insert into leads (name, phone, email, service, message, ip_hash, user_agent)
-    values (${input.name}, ${input.phone}, ${input.email}, ${input.service}, ${input.message}, ${meta.ipHash}, ${meta.userAgent})
-    returning id`;
-  return row.id;
+  const id = randomUUID();
+  await sql()`
+    insert into leads (id, name, phone, email, service, message, ip_hash, user_agent)
+    values (${id}, ${input.name}, ${input.phone}, ${input.email}, ${input.service}, ${input.message}, ${meta.ipHash}, ${meta.userAgent})`;
+  return id;
 }
 
 export const PAGE_SIZE = 25;
 
 export type LeadFilter = { status?: LeadStatus; q?: string; page?: number };
 
-/** Search is a plain substring match (strpos), so a `%` or `_` typed by the admin is just a character, never a wildcard. */
+/** Search is a plain substring match (locate), so a `%` or `_` typed by the admin is just a character, never a wildcard. */
 function whereClause(filter: LeadFilter) {
   const db = sql();
   const q = filter.q?.trim().slice(0, 100);
   const digits = q ? normalizePhone(q) : "";
   return db`true
     ${filter.status ? db`and status = ${filter.status}` : db``}
-    ${q ? db`and (strpos(lower(name), ${q.toLowerCase()}) > 0 or strpos(lower(coalesce(email, '')), ${q.toLowerCase()}) > 0 or (${digits.length >= 3} and strpos(phone, ${digits}) > 0))` : db``}`;
+    ${q ? db`and (locate(${q.toLowerCase()}, lower(name)) > 0 or locate(${q.toLowerCase()}, lower(coalesce(email, ''))) > 0 or (${digits.length >= 3} and locate(${digits}, phone) > 0))` : db``}`;
 }
 
 export async function listLeads(filter: LeadFilter): Promise<{ rows: Lead[]; total: number; page: number; pages: number }> {
   const db = sql();
   const where = whereClause(filter);
-  const [{ count }] = await db<{ count: number }[]>`select count(*)::int as count from leads where ${where}`;
+  const [{ count }] = await db<{ count: number }[]>`select count(*) as count from leads where ${where}`;
   const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
   const page = Math.min(Math.max(1, Math.floor(filter.page ?? 1) || 1), pages);
   const rows = await db<LeadRow[]>`select ${db.unsafe(COLUMNS)} from leads where ${where} order by created_at desc limit ${PAGE_SIZE} offset ${(page - 1) * PAGE_SIZE}`;
@@ -121,22 +122,22 @@ export async function getLead(id: string): Promise<Lead | null> {
 }
 
 export async function updateLead(id: string, patch: { status: LeadStatus; note: string }): Promise<boolean> {
-  const rows = await sql()`update leads set status = ${patch.status}, note = ${patch.note}, updated_at = now() where id = ${id} returning id`;
-  return rows.length > 0;
+  const result = await sql()`update leads set status = ${patch.status}, note = ${patch.note}, updated_at = now(3) where id = ${id}`;
+  return result.count > 0;
 }
 
 export async function deleteLead(id: string): Promise<boolean> {
-  const rows = await sql()`delete from leads where id = ${id} returning id`;
-  return rows.length > 0;
+  const result = await sql()`delete from leads where id = ${id}`;
+  return result.count > 0;
 }
 
 export async function leadStats(): Promise<{ total: number; fresh: number; week: number }> {
   const [row] = await sql()<{ total: number; fresh: number; week: number }[]>`
-    select count(*)::int as total,
-           count(*) filter (where status = 'new')::int as fresh,
-           count(*) filter (where created_at > now() - interval '7 days')::int as week
+    select count(*) as total,
+           count(case when status = 'new' then 1 end) as fresh,
+           count(case when created_at > now(3) - interval 7 day then 1 end) as week
     from leads`;
-  return row;
+  return { total: Number(row.total), fresh: Number(row.fresh), week: Number(row.week) };
 }
 
 export async function leadsForExport(filter: Pick<LeadFilter, "status" | "q">): Promise<Lead[]> {

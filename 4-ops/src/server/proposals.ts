@@ -1,10 +1,12 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CURRENCIES, type Currency, type ProposalStatus } from "@/lib/crm-rules";
 import { blockingProblems, type ProposalDraft } from "@/lib/proposal-rules";
 import { templateFor } from "@/lib/proposal-templates";
 import { milestonesAreComplete, parseMoney } from "@/lib/money";
 import { sql } from "./db";
+import { fromJson } from "./sql";
 
 export type ProposalItem = { title: string; description: string; quantity: number; unitPriceMinor: number };
 export type Milestone = { title: string; percentBp: number };
@@ -52,7 +54,7 @@ type ProposalRow = {
 };
 
 const SELECT = `p.id, p.deal_id, d.title as deal_title, c.name as client_name, p.number, p.status, p.title, p.currency, p.tax_rate_bp,
-  p.discount_minor, to_char(p.valid_until, 'YYYY-MM-DD') as valid_until, p.intro, p.sections, p.timeline, p.created_at, p.updated_at, p.sent_at`;
+  p.discount_minor, date_format(p.valid_until, '%Y-%m-%d') as valid_until, p.intro, p.sections, p.timeline, p.created_at, p.updated_at, p.sent_at`;
 
 export type ProposalSummary = Omit<Proposal, "items" | "milestones" | "sections" | "timeline" | "intro"> & { totalMinor: number };
 
@@ -109,8 +111,8 @@ export async function getProposal(id: string): Promise<Proposal | null> {
     discountMinor: Number(row.discount_minor),
     validUntil: row.valid_until,
     intro: row.intro,
-    sections: row.sections,
-    timeline: row.timeline,
+    sections: fromJson(row.sections),
+    timeline: fromJson(row.timeline),
     items: items.map((i) => ({ title: i.title, description: i.description, quantity: i.quantity, unitPriceMinor: Number(i.unit_price_minor) })),
     milestones: milestones.map((m) => ({ title: m.title, percentBp: m.percent_bp })),
     createdAt: row.created_at,
@@ -121,10 +123,10 @@ export async function getProposal(id: string): Promise<Proposal | null> {
 
 /** P-2026-0001: one atomic counter row per year, so two people creating at once can never get the same number. */
 export async function nextNumber(tx: ReturnType<typeof sql>, year: number): Promise<string> {
-  const [row] = await tx<{ last: number }[]>`
-    insert into proposal_counters (year, last) values (${year}, 1)
-    on conflict (year) do update set last = proposal_counters.last + 1 returning last`;
-  return `P-${year}-${String(row.last).padStart(4, "0")}`;
+  // The upsert locks the year's row until the transaction ends, so the read below sees exactly this call's number.
+  await tx`insert into proposal_counters (year, last_number) values (${year}, 1) on duplicate key update last_number = last_number + 1`;
+  const [row] = await tx<{ last_number: number }[]>`select last_number from proposal_counters where year = ${year}`;
+  return `P-${year}-${String(row.last_number).padStart(4, "0")}`;
 }
 
 export async function createProposalForDeal(dealId: string, userId: string): Promise<string | null> {
@@ -134,15 +136,15 @@ export async function createProposalForDeal(dealId: string, userId: string): Pro
     const template = templateFor(deal.service);
     const number = await nextNumber(tx as unknown as ReturnType<typeof sql>, new Date().getFullYear());
     const currency = (deal.currency?.trim() as Currency | undefined) ?? "EGP";
-    const [proposal] = await tx<{ id: string }[]>`
-      insert into proposals (deal_id, number, title, currency, sections, timeline, created_by)
-      values (${dealId}, ${number}, ${`عرض ${deal.title}`}, ${currency}, ${tx.json(template.sections)}, ${tx.json(template.timeline)}, ${userId})
-      returning id`;
+    const proposalId = randomUUID();
+    await tx`
+      insert into proposals (id, deal_id, number, title, currency, sections, timeline, created_by)
+      values (${proposalId}, ${dealId}, ${number}, ${`عرض ${deal.title}`}, ${currency}, ${tx.json(template.sections)}, ${tx.json(template.timeline)}, ${userId})`;
     for (const [position, m] of template.milestones.entries()) {
-      await tx`insert into proposal_milestones (proposal_id, position, title, percent_bp) values (${proposal.id}, ${position}, ${m.title}, ${m.percentBp})`;
+      await tx`insert into proposal_milestones (id, proposal_id, position, title, percent_bp) values (${randomUUID()}, ${proposalId}, ${position}, ${m.title}, ${m.percentBp})`;
     }
-    await tx`insert into activities (deal_id, user_id, kind, body) values (${dealId}, ${userId}, 'system', ${`اتعمل العرض ${number}`})`;
-    return proposal.id;
+    await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${dealId}, ${userId}, 'system', ${`اتعمل العرض ${number}`})`;
+    return proposalId;
   });
 }
 
@@ -152,24 +154,24 @@ export async function duplicateProposal(id: string, userId: string): Promise<str
   if (!source) return null;
   return sql().begin(async (tx) => {
     const number = await nextNumber(tx as unknown as ReturnType<typeof sql>, new Date().getFullYear());
-    const [copy] = await tx<{ id: string }[]>`
-      insert into proposals (deal_id, number, title, currency, tax_rate_bp, discount_minor, valid_until, intro, sections, timeline, created_by)
-      values (${source.dealId}, ${number}, ${source.title}, ${source.currency}, ${source.taxRateBp}, ${source.discountMinor}, ${source.validUntil}, ${source.intro},
-              ${tx.json(source.sections)}, ${tx.json(source.timeline)}, ${userId})
-      returning id`;
-    await insertChildren(tx as unknown as ReturnType<typeof sql>, copy.id, source.items, source.milestones);
-    await tx`insert into activities (deal_id, user_id, kind, body) values (${source.dealId}, ${userId}, 'system', ${`اتعملت نسخة ${number} من ${source.number}`})`;
-    return copy.id;
+    const copyId = randomUUID();
+    await tx`
+      insert into proposals (id, deal_id, number, title, currency, tax_rate_bp, discount_minor, valid_until, intro, sections, timeline, created_by)
+      values (${copyId}, ${source.dealId}, ${number}, ${source.title}, ${source.currency}, ${source.taxRateBp}, ${source.discountMinor}, ${source.validUntil}, ${source.intro},
+              ${tx.json(source.sections)}, ${tx.json(source.timeline)}, ${userId})`;
+    await insertChildren(tx as unknown as ReturnType<typeof sql>, copyId, source.items, source.milestones);
+    await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${source.dealId}, ${userId}, 'system', ${`اتعملت نسخة ${number} من ${source.number}`})`;
+    return copyId;
   });
 }
 
 async function insertChildren(tx: ReturnType<typeof sql>, proposalId: string, items: ProposalItem[], milestones: Milestone[]) {
   for (const [position, item] of items.entries()) {
-    await tx`insert into proposal_items (proposal_id, position, title, description, quantity, unit_price_minor)
-             values (${proposalId}, ${position}, ${item.title}, ${item.description}, ${item.quantity}, ${item.unitPriceMinor})`;
+    await tx`insert into proposal_items (id, proposal_id, position, title, description, quantity, unit_price_minor)
+             values (${randomUUID()}, ${proposalId}, ${position}, ${item.title}, ${item.description}, ${item.quantity}, ${item.unitPriceMinor})`;
   }
   for (const [position, m] of milestones.entries()) {
-    await tx`insert into proposal_milestones (proposal_id, position, title, percent_bp) values (${proposalId}, ${position}, ${m.title}, ${m.percentBp})`;
+    await tx`insert into proposal_milestones (id, proposal_id, position, title, percent_bp) values (${randomUUID()}, ${proposalId}, ${position}, ${m.title}, ${m.percentBp})`;
   }
 }
 
@@ -259,7 +261,7 @@ export async function saveProposal(id: string, data: ParsedProposal): Promise<Sa
     if (current.status !== "draft") return { ok: false, error: "العرض اتبعت، اعمل نسخة جديدة منه عشان تعدّل" };
     await tx`
       update proposals set title = ${data.title}, currency = ${data.currency}, tax_rate_bp = ${data.taxRateBp}, discount_minor = ${data.discountMinor},
-             valid_until = ${data.validUntil}, intro = ${data.intro}, sections = ${tx.json(data.sections)}, timeline = ${tx.json(data.timeline)}, updated_at = now()
+             valid_until = ${data.validUntil}, intro = ${data.intro}, sections = ${tx.json(data.sections)}, timeline = ${tx.json(data.timeline)}, updated_at = now(3)
       where id = ${id}`;
     await tx`delete from proposal_items where proposal_id = ${id}`;
     await tx`delete from proposal_milestones where proposal_id = ${id}`;
@@ -276,12 +278,12 @@ export async function markSent(id: string, userId: string): Promise<SaveResult> 
   const problems = blockingProblems(proposal);
   if (problems.length > 0) return { ok: false, error: problems[0] };
   return sql().begin(async (tx): Promise<SaveResult> => {
-    await tx`update proposals set status = 'sent', sent_at = now(), updated_at = now() where id = ${id}`;
-    await tx`insert into activities (deal_id, user_id, kind, body) values (${proposal.dealId}, ${userId}, 'system', ${`اتبعت العرض ${proposal.number}`})`;
+    await tx`update proposals set status = 'sent', sent_at = now(3), updated_at = now(3) where id = ${id}`;
+    await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${proposal.dealId}, ${userId}, 'system', ${`اتبعت العرض ${proposal.number}`})`;
     const moved = await tx`
-      update deals set stage = 'proposal_sent', stage_changed_at = now(), updated_at = now()
-      where id = ${proposal.dealId} and stage in ('new', 'contacted', 'meeting') returning id`;
-    if (moved.length > 0) await tx`insert into activities (deal_id, user_id, kind, body) values (${proposal.dealId}, ${userId}, 'stage', 'اتنقلت تلقائيًا إلى «عرض مُرسل»')`;
+      update deals set stage = 'proposal_sent', stage_changed_at = now(3), updated_at = now(3)
+      where id = ${proposal.dealId} and stage in ('new', 'contacted', 'meeting')`;
+    if (moved.count > 0) await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${proposal.dealId}, ${userId}, 'stage', 'اتنقلت تلقائيًا إلى «عرض مُرسل»')`;
     return { ok: true };
   });
 }
@@ -294,10 +296,11 @@ async function syncDealValue(tx: ReturnType<typeof sql>, proposalId: string, dea
   const { computeTotals } = await import("@/lib/money");
   const totalMinor = computeTotals([{ quantity: 1, unitPriceMinor: Number(row.subtotal) }], Number(row.discount_minor), row.tax_rate_bp).totalMinor;
   const currency = row.currency.trim();
+  // `<=>` is the NULL-safe comparison: a deal without a value yet counts as different.
   const changed = await tx`
-    update deals set value_minor = ${totalMinor}, currency = ${currency}, updated_at = now()
-    where id = ${dealId} and (value_minor is distinct from ${totalMinor} or currency is distinct from ${currency}) returning id`;
-  if (changed.length > 0) await tx`insert into activities (deal_id, user_id, kind, body) values (${dealId}, ${userId}, 'system', 'اتحدّثت قيمة الصفقة لتطابق العرض المقبول')`;
+    update deals set value_minor = ${totalMinor}, currency = ${currency}, updated_at = now(3)
+    where id = ${dealId} and (not (value_minor <=> ${totalMinor}) or not (currency <=> ${currency}))`;
+  if (changed.count > 0) await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${dealId}, ${userId}, 'system', 'اتحدّثت قيمة الصفقة لتطابق العرض المقبول')`;
 }
 
 export async function setOutcome(id: string, outcome: "accepted" | "rejected", userId: string): Promise<SaveResult> {
@@ -305,8 +308,8 @@ export async function setOutcome(id: string, outcome: "accepted" | "rejected", u
     const [row] = await tx<{ status: ProposalStatus; deal_id: string; number: string }[]>`select status, deal_id, number from proposals where id = ${id} for update`;
     if (!row) return { ok: false, error: "العرض مش موجود" };
     if (row.status !== "sent") return { ok: false, error: "النتيجة بتتسجّل للعرض المُرسل بس" };
-    await tx`update proposals set status = ${outcome}, updated_at = now() where id = ${id}`;
-    await tx`insert into activities (deal_id, user_id, kind, body) values (${row.deal_id}, ${userId}, 'system', ${`العرض ${row.number} ${outcome === "accepted" ? "اتقبل" : "اترفض"}`})`;
+    await tx`update proposals set status = ${outcome}, updated_at = now(3) where id = ${id}`;
+    await tx`insert into activities (id, deal_id, user_id, kind, body) values (${randomUUID()}, ${row.deal_id}, ${userId}, 'system', ${`العرض ${row.number} ${outcome === "accepted" ? "اتقبل" : "اترفض"}`})`;
     if (outcome === "accepted") await syncDealValue(tx as unknown as ReturnType<typeof sql>, id, row.deal_id, userId);
     return { ok: true };
   });

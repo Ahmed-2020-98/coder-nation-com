@@ -1,6 +1,5 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
-import type postgres from "postgres";
 import {
   EMPTY_STORED,
   computeView,
@@ -16,6 +15,7 @@ import {
 import { HIDEABLE_SECTIONS, type SectionId } from "@/lib/content-spec";
 import { sql } from "./db";
 import { purgeOrphanMedia } from "./media";
+import { fromJson } from "./sql";
 
 export const CONTENT_TAG = "content";
 // The editable page text is one JSON document in `settings`, next to the 'site' one (src/server/settings.ts).
@@ -23,8 +23,8 @@ const KEY = "content";
 
 /** Straight from the database (admin screens). Throws if the database is unavailable. */
 export async function readStored(): Promise<StoredContent> {
-  const [row] = await sql()<{ value: unknown }[]>`select value from settings where key = ${KEY}`;
-  return normalizeStored(row?.value);
+  const [row] = await sql()<{ value: unknown }[]>`select value from settings where name = ${KEY}`;
+  return normalizeStored(fromJson(row?.value));
 }
 
 /**
@@ -49,10 +49,10 @@ export type SaveResult = { ok: true } | { ok: false; error: string; fieldErrors?
 async function mutate(update: (stored: StoredContent) => StoredContent): Promise<void> {
   const db = sql();
   const next = await db.begin(async (tx) => {
-    await tx`insert into settings (key, value) values (${KEY}, ${tx.json(EMPTY_STORED as unknown as postgres.JSONValue)}) on conflict (key) do nothing`;
-    const [row] = await tx<{ value: unknown }[]>`select value from settings where key = ${KEY} for update`;
-    const updated = update(normalizeStored(row?.value));
-    await tx`update settings set value = ${tx.json(updated as unknown as postgres.JSONValue)}, updated_at = now() where key = ${KEY}`;
+    await tx`insert into settings (name, value) values (${KEY}, ${tx.json(EMPTY_STORED)}) on duplicate key update name = name`;
+    const [row] = await tx<{ value: unknown }[]>`select value from settings where name = ${KEY} for update`;
+    const updated = update(normalizeStored(fromJson(row?.value)));
+    await tx`update settings set value = ${tx.json(updated)}, updated_at = now(3) where name = ${KEY}`;
     return updated;
   });
   // Housekeeping only: a failure here must never fail the save.

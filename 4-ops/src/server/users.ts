@@ -1,7 +1,8 @@
 import "server-only";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { EMAIL_RE, ROLES, type Role } from "@/lib/crm-rules";
 import { sql } from "./db";
+import { isDuplicateKey } from "./sql";
 import { hashPassword } from "./password";
 import { normalizeEmail } from "./auth-core";
 
@@ -36,9 +37,9 @@ export async function createUser(input: { email: string; name: string; role: Rol
   if (!(ROLES as readonly string[]).includes(input.role)) return { ok: false, error: "دور غير صالح" };
   const password = temporaryPassword();
   try {
-    await sql()`insert into users (email, name, role, password_hash, must_change_password) values (${email}, ${name}, ${input.role}, ${await hashPassword(password)}, true)`;
+    await sql()`insert into users (id, email, name, role, password_hash, must_change_password) values (${randomUUID()}, ${email}, ${name}, ${input.role}, ${await hashPassword(password)}, true)`;
   } catch (error) {
-    if ((error as { code?: string }).code === "23505") return { ok: false, error: "الإيميل ده مسجّل قبل كده" };
+    if (isDuplicateKey(error)) return { ok: false, error: "الإيميل ده مسجّل قبل كده" };
     throw error;
   }
   return { ok: true, temporaryPassword: password };
@@ -46,7 +47,7 @@ export async function createUser(input: { email: string; name: string; role: Rol
 
 /** At least one active owner must always remain, or nobody could manage users again. */
 async function otherActiveOwners(userId: string): Promise<number> {
-  const [row] = await sql()<{ n: number }[]>`select count(*)::int as n from users where role = 'owner' and active and id <> ${userId}`;
+  const [row] = await sql()<{ n: number }[]>`select count(*) as n from users where role = 'owner' and active and id <> ${userId}`;
   return row.n;
 }
 
@@ -77,8 +78,8 @@ export async function resetPassword(userId: string): Promise<UserResult> {
   const password = temporaryPassword();
   const hash = await hashPassword(password);
   const done = await sql().begin(async (tx) => {
-    const rows = await tx`update users set password_hash = ${hash}, must_change_password = true where id = ${userId} returning id`;
-    if (rows.length === 0) return false;
+    const result = await tx`update users set password_hash = ${hash}, must_change_password = true where id = ${userId}`;
+    if (result.count === 0) return false;
     await tx`delete from sessions where user_id = ${userId}`;
     return true;
   });

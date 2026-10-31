@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import type { Role } from "@/lib/crm-rules";
 import { todayInCairo } from "@/lib/dates";
 import { validateTaskTransition, type TaskTransition } from "@/lib/task-flow";
@@ -69,7 +70,7 @@ const toTask = (r: TaskRow): Task => ({
 function taskSelect() {
   return sql()`
     select t.id, t.title, t.description, t.status, t.blocked_reason, t.priority, t.assignee_id, u.name as assignee_name,
-           to_char(t.due_date, 'YYYY-MM-DD') as due_date, t.project_id, p.name as project_name, t.deal_id, d.title as deal_title,
+           date_format(t.due_date, '%Y-%m-%d') as due_date, t.project_id, p.name as project_name, t.deal_id, d.title as deal_title,
            t.client_id, c.name as client_name, t.created_at, t.completed_at
     from tasks t
     left join users u on u.id = t.assignee_id
@@ -101,9 +102,9 @@ export async function listTasks(filter: TaskFilter = {}): Promise<Task[]> {
       ${filter.status ? db`and t.status = ${filter.status}` : db``}
       ${filter.priority ? db`and t.priority = ${filter.priority}` : db``}
       ${filter.overdueOnly ? db`and t.due_date < ${today} and t.status <> 'done'` : db``}
-      ${q ? db`and (strpos(lower(t.title), ${q}) > 0 or strpos(lower(coalesce(t.project_name, '')), ${q}) > 0 or strpos(lower(coalesce(t.client_name, '')), ${q}) > 0)` : db``}
-      ${filter.doneWithinDays ? db`and (t.status <> 'done' or t.completed_at > now() - make_interval(days => ${filter.doneWithinDays}))` : db``}
-    order by (t.status = 'done'), t.due_date nulls last,
+      ${q ? db`and (locate(${q}, lower(t.title)) > 0 or locate(${q}, lower(coalesce(t.project_name, ''))) > 0 or locate(${q}, lower(coalesce(t.client_name, ''))) > 0)` : db``}
+      ${filter.doneWithinDays ? db`and (t.status <> 'done' or t.completed_at > now(3) - interval ${filter.doneWithinDays} day)` : db``}
+    order by (t.status = 'done'), (t.due_date is null), t.due_date,
              case t.priority when 'urgent' then 0 when 'high' then 1 when 'normal' then 2 else 3 end, t.created_at desc
     limit 500`;
   return rows.map(toTask);
@@ -129,29 +130,29 @@ export type NewTask = {
 
 export async function createTask(input: NewTask, createdBy: string): Promise<string> {
   return sql().begin(async (tx) => {
-    const [task] = await tx<{ id: string }[]>`
-      insert into tasks (title, description, priority, assignee_id, due_date, project_id, deal_id, client_id, created_by)
-      values (${input.title}, ${input.description}, ${input.priority}, ${input.assigneeId}, ${input.dueDate}, ${input.projectId}, ${input.dealId}, ${input.clientId}, ${createdBy})
-      returning id`;
-    await tx`insert into task_events (task_id, user_id, kind, body) values (${task.id}, ${createdBy}, 'system', 'اتعملت المهمة')`;
-    return task.id;
+    const id = randomUUID();
+    await tx`
+      insert into tasks (id, title, description, priority, assignee_id, due_date, project_id, deal_id, client_id, created_by)
+      values (${id}, ${input.title}, ${input.description}, ${input.priority}, ${input.assigneeId}, ${input.dueDate}, ${input.projectId}, ${input.dealId}, ${input.clientId}, ${createdBy})`;
+    await tx`insert into task_events (id, task_id, user_id, kind, body) values (${randomUUID()}, ${id}, ${createdBy}, 'system', 'اتعملت المهمة')`;
+    return id;
   });
 }
 
 export async function updateTaskDetails(id: string, patch: Omit<NewTask, "assigneeId">): Promise<boolean> {
-  const rows = await sql()`
+  const result = await sql()`
     update tasks set title = ${patch.title}, description = ${patch.description}, priority = ${patch.priority}, due_date = ${patch.dueDate},
-           project_id = ${patch.projectId}, deal_id = ${patch.dealId}, client_id = ${patch.clientId}, updated_at = now()
-    where id = ${id} returning id`;
-  return rows.length > 0;
+           project_id = ${patch.projectId}, deal_id = ${patch.dealId}, client_id = ${patch.clientId}, updated_at = now(3)
+    where id = ${id}`;
+  return result.count > 0;
 }
 
 export async function assignTask(id: string, assigneeId: string | null, byUserId: string): Promise<boolean> {
   return sql().begin(async (tx) => {
-    const rows = await tx`update tasks set assignee_id = ${assigneeId}, updated_at = now() where id = ${id} returning id`;
-    if (rows.length === 0) return false;
+    const result = await tx`update tasks set assignee_id = ${assigneeId}, updated_at = now(3) where id = ${id}`;
+    if (result.count === 0) return false;
     const [who] = assigneeId ? await tx<{ name: string }[]>`select name from users where id = ${assigneeId}` : [];
-    await tx`insert into task_events (task_id, user_id, kind, body) values (${id}, ${byUserId}, 'assign', ${who ? `اتسندت لـ ${who.name}` : "اتشال المسؤول عن المهمة"})`;
+    await tx`insert into task_events (id, task_id, user_id, kind, body) values (${randomUUID()}, ${id}, ${byUserId}, 'assign', ${who ? `اتسندت لـ ${who.name}` : "اتشال المسؤول عن المهمة"})`;
     return true;
   });
 }
@@ -165,11 +166,11 @@ export async function changeStatus(id: string, to: TaskStatus, reason: string | 
     if (!check.ok) return check;
     const blockedReason = to === "blocked" ? reason!.trim() : null;
     await tx`
-      update tasks set status = ${to}, blocked_reason = ${blockedReason}, updated_at = now(),
-             completed_at = ${to === "done" ? tx`now()` : null}
+      update tasks set status = ${to}, blocked_reason = ${blockedReason}, updated_at = now(3),
+             completed_at = ${to === "done" ? tx`now(3)` : null}
       where id = ${id}`;
-    await tx`insert into task_events (task_id, user_id, kind, body)
-             values (${id}, ${user.id}, 'status', ${`من «${TASK_STATUS_LABEL[task.status]}» إلى «${TASK_STATUS_LABEL[to]}»${blockedReason ? `. السبب: ${blockedReason}` : ""}`})`;
+    await tx`insert into task_events (id, task_id, user_id, kind, body)
+             values (${randomUUID()}, ${id}, ${user.id}, 'status', ${`من «${TASK_STATUS_LABEL[task.status]}» إلى «${TASK_STATUS_LABEL[to]}»${blockedReason ? `. السبب: ${blockedReason}` : ""}`})`;
     return { ok: true };
   });
 }
@@ -184,15 +185,15 @@ export async function listEvents(taskId: string): Promise<TaskEvent[]> {
 }
 
 export async function addComment(taskId: string, userId: string, body: string): Promise<void> {
-  await sql()`insert into task_events (task_id, user_id, kind, body) values (${taskId}, ${userId}, 'comment', ${body})`;
-  await sql()`update tasks set updated_at = now() where id = ${taskId}`;
+  await sql()`insert into task_events (id, task_id, user_id, kind, body) values (${randomUUID()}, ${taskId}, ${userId}, 'comment', ${body})`;
+  await sql()`update tasks set updated_at = now(3) where id = ${taskId}`;
 }
 
 export async function taskCounts(assigneeId?: string): Promise<{ open: number; overdue: number }> {
   const db = sql();
   const [row] = await db<{ open: number; overdue: number }[]>`
-    select count(*) filter (where status <> 'done')::int as open,
-           count(*) filter (where status <> 'done' and due_date < ${todayInCairo()})::int as overdue
+    select count(case when status <> 'done' then 1 end) as open,
+           count(case when status <> 'done' and due_date < ${todayInCairo()} then 1 end) as overdue
     from tasks ${assigneeId ? db`where assignee_id = ${assigneeId}` : db``}`;
-  return row;
+  return { open: Number(row.open), overdue: Number(row.overdue) };
 }

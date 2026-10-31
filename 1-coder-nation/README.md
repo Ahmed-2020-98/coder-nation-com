@@ -1,12 +1,12 @@
 # Coder Nation: الموقع التعريفي + لوحة التحكم
 
-Next.js 16 (App Router) + TypeScript + Tailwind v4، عربي RTL. الموقع العام (محتوى مؤقت) + لوحة تحكم `/admin` لطلبات العملاء وإعدادات الموقع، على Postgres.
+Next.js 16 (App Router) + TypeScript + Tailwind v4، عربي RTL. الموقع العام (محتوى مؤقت) + لوحة تحكم `/admin` لطلبات العملاء وإعدادات الموقع، على MySQL (أو MariaDB).
 
 ## التشغيل
 
 ```bash
 npm install
-createdb coder_nation_site          # مرة واحدة (Postgres محلي)
+mysql -uroot -e 'create database coder_nation_site character set utf8mb4 collate utf8mb4_unicode_ci'   # مرة واحدة (MySQL محلي)
 cp .env.example .env.local          # وعدّل DATABASE_URL و IP_HASH_SALT
 npm run db:migrate                  # يعمل الجداول
 npm run admin:create -- --email you@example.com   # يعمل أول أدمن (بيسألك على الباسورد مخفي)
@@ -66,7 +66,7 @@ src/
 ├─ config/              site.ts (قيم افتراضية) · ecosystem.ts
 ├─ components/          ui · sections · admin (AdminShell, ui/*) · Logo · Reveal · OrganizationJsonLd
 └─ lib/                 cn · lead-rules · lead-contact · csv · settings-shape · session-cookie · content-spec · content-model · content-form · image-upload
-tests/                  unit + integration (Postgres مؤقتة بتتعمل وتتمسح)
+tests/                  unit + integration (قواعد MySQL مؤقتة بتتعمل وتتمسح)
 ```
 
 ## أين أعدّل؟
@@ -83,7 +83,7 @@ tests/                  unit + integration (Postgres مؤقتة بتتعمل و�
 
 ## للنشر لاحقًا (مش معمول دلوقتي)
 
-1. قاعدة Postgres مُدارة (مثلًا Neon من Vercel Marketplace)، و`npm run db:migrate` عليها، و`npm run admin:create` ضدها.
+1. قاعدة MySQL (على Hostinger: من hPanel أو API، والتطبيق بيتصل بـ `127.0.0.1:3306`)، و`npm run db:migrate` عليها، و`npm run admin:create` ضدها.
 2. المتغيرات: `DATABASE_URL` و`SITE_URL` (الدومين الحقيقي) و`IP_HASH_SALT`.
 3. **ابنِ والـ `DATABASE_URL` موجود**، عشان الصفحة المبنية تحمل إعداداتك. لو اتبنت من غيرها هتعرض القيم الافتراضية لحد أول تحديث (≤ 5 دقايق)، أو لحد ما تحفظ الإعدادات.
 4. لا إشعارات للطلبات الجديدة (إيميل/واتساب) لسه: الطلبات بتظهر في اللوحة بس.

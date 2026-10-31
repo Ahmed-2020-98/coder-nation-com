@@ -1,12 +1,10 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import postgres from "postgres";
-import { migrate } from "../db/migrate.mjs";
+import type { Db } from "../src/server/sql";
+import { clearTables, createTestDb, dropTestDb, withId, type TestDb } from "./helpers/db";
 
 // Server actions and route handlers with Next's request APIs faked. The point: every entry point checks the session
 // AND the role by itself, and a stranger can't get past the intake signature.
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://localhost:5432/postgres";
-const DB_NAME = `cn_ops_test_${Math.random().toString(36).slice(2, 10)}`;
 const SECRET = "i".repeat(48);
 
 const requestHeaders = new Headers();
@@ -52,7 +50,8 @@ type Mods = {
   exportRoute: typeof import("@/app/api/attendance/export/route");
 };
 const m = { actions: {} } as unknown as Mods;
-let raw: ReturnType<typeof postgres>;
+let raw: Db;
+let testDb: TestDb;
 
 const form = (values: Record<string, string>) => {
   const data = new FormData();
@@ -73,9 +72,9 @@ const redirected = async (run: () => Promise<unknown>) => {
 
 async function login(role: "owner" | "manager" | "employee", opts: { must?: boolean } = {}) {
   const email = `${role}-${Math.random().toString(36).slice(2, 7)}@x.com`;
-  const [user] = await raw<{ id: string }[]>`
-    insert into users (email, name, role, password_hash, must_change_password)
-    values (${email}, ${role + " user"}, ${role}, ${await m.password.hashPassword("a long enough password")}, ${opts.must ?? false}) returning id`;
+  const [user] = await withId(async (id) => raw`
+    insert into users (id, email, name, role, password_hash, must_change_password)
+    values (${id}, ${email}, ${role + " user"}, ${role}, ${await m.password.hashPassword("a long enough password")}, ${opts.must ?? false})`);
   const result = await m.auth.signIn(email, "a long enough password", { ipHash: `ip-${email}`, userAgent: null });
   if (!result.ok) throw new Error("sign-in failed");
   cookieJar.set("cn_ops", result.token);
@@ -86,14 +85,11 @@ const logout = () => cookieJar.clear();
 const dealInput = { title: "موقع شركة", service: "موقع إلكتروني", message: "", ownerId: "", value: "", currency: "EGP", clientName: "شركة النور", clientPhone: "+201000000001", clientEmail: "" };
 
 beforeAll(async () => {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create database ${DB_NAME}`);
-  await admin.end();
-  process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
+  testDb = await createTestDb("cn_ops_test");
+  raw = testDb.raw;
+  process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
   process.env.INTAKE_SECRET = SECRET;
-  raw = postgres(process.env.DATABASE_URL, { max: 3, onnotice: () => {} });
-  await migrate(raw);
   vi.resetModules();
   m.db = await import("@/server/db");
   m.auth = await import("@/server/auth-core");
@@ -113,14 +109,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await m.db?.closeDatabase();
-  await raw?.end({ timeout: 5 });
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`drop database if exists ${DB_NAME} with (force)`);
-  await admin.end();
+  await dropTestDb(testDb);
 });
 
 beforeEach(async () => {
-  await raw`truncate users, sessions, rate_limits, clients, contacts, deals, activities, follow_ups, proposals, proposal_items, proposal_milestones, proposal_counters, projects, tasks, task_events, work_schedules, attendance, attendance_edits, leaves restart identity cascade`;
+  await clearTables(raw, ["leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
   cookieJar.clear();
   for (const key of [...requestHeaders.keys()]) requestHeaders.delete(key);
   requestHeaders.set("x-forwarded-for", "203.0.113.7");
@@ -166,7 +159,7 @@ describe("who can reach what", () => {
     expect(await to(() => m.actions.admin.saveCompanyAction(null, form({ name: "هاك" })))).toBe("/");
     expect(await to(() => m.actions.admin.createUserAction(null, form({ email: "a@b.co", name: "x y", role: "owner" })))).toBe("/");
     expect(await to(() => m.actions.admin.resetPasswordAction(null, form({ id: dealId })))).toBe("/");
-    expect(await raw`select count(*)::int as n from users`).toEqual([{ n: 2 }]);
+    expect(await raw`select count(*) as n from users`).toEqual([{ n: 2 }]);
     expect((await m.crm.getDeal(dealId))?.stage).toBe("new");
   });
 
@@ -208,7 +201,7 @@ describe("deals through the actions", () => {
     expect(followUp).toEqual({ ok: true });
     const [mine] = await m.crm.listFollowUps({ dealId });
     // completing a follow-up on someone else's deal is refused too
-    const foreign = await raw<{ id: string }[]>`insert into follow_ups (deal_id, due_at) values (${other.id}, now()) returning id`;
+    const foreign = await withId(async (id) => raw`insert into follow_ups (id, deal_id, due_at) values (${id}, ${other.id}, now(3))`);
     await redirected(() => m.actions.crm.completeFollowUpAction(form({ id: foreign[0].id })));
     expect((await raw`select done_at from follow_ups where id = ${foreign[0].id}`)[0].done_at).toBeNull();
     await m.actions.crm.completeFollowUpAction(form({ id: mine.id }));
@@ -217,7 +210,7 @@ describe("deals through the actions", () => {
 
   it("moving, losing and assigning go through the rules; assigning to a suspended user is refused", async () => {
     const manager = await login("manager");
-    const suspended = await raw<{ id: string }[]>`insert into users (email, name, role, password_hash, active) values ('s@x.com', 'موقوف', 'employee', 'x', false) returning id`;
+    const suspended = await withId(async (id) => raw`insert into users (id, email, name, role, password_hash, active) values (${id}, 's@x.com', 'موقوف', 'employee', 'x', false)`);
     const { id } = await m.crm.createDeal({ title: "صفقة", service: null, source: "manual", valueMinor: null, currency: null, ownerId: null, message: null, client: { name: "عميل", phone: null, email: null } }, manager.id);
     expect(await m.actions.crm.moveDealAction(null, form({ id, stage: "lost" }))).toEqual({ error: "اكتب سبب الخسارة" });
     expect(await m.actions.crm.moveDealAction(null, form({ id, stage: "banana" }))).toEqual({ error: "طلب غير صالح" });
@@ -280,7 +273,7 @@ describe("website intake endpoint", () => {
     expect(created).toMatchObject({ ok: true, created: true });
     const second = await post(request(body));
     expect(await second.json()).toEqual({ ok: true, id: created.id, created: false });
-    expect(await raw`select count(*)::int as n from deals`).toEqual([{ n: 1 }]);
+    expect(await raw`select count(*) as n from deals`).toEqual([{ n: 1 }]);
     expect(await m.crm.getDeal(created.id)).toMatchObject({ source: "website", stage: "new", ownerId: null, clientName: "منى حسن", service: "موقع إلكتروني" });
   });
 
@@ -352,7 +345,7 @@ describe("tasks and projects: who can do what", () => {
   const taskCount = async () => (await raw`select 1 from tasks`).length;
 
   async function seedTask(assigneeId: string | null, creatorId: string, title = "مهمة") {
-    const [row] = await raw<{ id: string }[]>`insert into tasks (title, assignee_id, created_by) values (${title}, ${assigneeId}, ${creatorId}) returning id`;
+    const [row] = await withId(async (id) => raw`insert into tasks (id, title, assignee_id, created_by) values (${id}, ${title}, ${assigneeId}, ${creatorId})`);
     return row.id;
   }
   const statusOf = async (id: string) => (await raw<{ status: string }[]>`select status from tasks where id = ${id}`)[0].status;
@@ -413,8 +406,8 @@ describe("tasks and projects: who can do what", () => {
 
   it("a manager creates, assigns, edits and closes; bad ids come back as friendly errors", async () => {
     await login("manager");
-    const [dev] = await raw<{ id: string }[]>`insert into users (email, name, role, password_hash) values ('dev@x.com', 'مطور', 'employee', 'x') returning id`;
-    const [off] = await raw<{ id: string }[]>`insert into users (email, name, role, password_hash, active) values ('off@x.com', 'موقوف', 'employee', 'x', false) returning id`;
+    const [dev] = await withId(async (id) => raw`insert into users (id, email, name, role, password_hash) values (${id}, 'dev@x.com', 'مطور', 'employee', 'x')`);
+    const [off] = await withId(async (id) => raw`insert into users (id, email, name, role, password_hash, active) values (${id}, 'off@x.com', 'موقوف', 'employee', 'x', false)`);
 
     expect(await m.actions.tasks.createTaskAction(null, form({ ...taskInput, title: "x" }))).toMatchObject({ fieldErrors: { title: expect.any(String) } });
     expect(await m.actions.tasks.createTaskAction(null, form({ ...taskInput, dueDate: "2026-02-31" }))).toMatchObject({ fieldErrors: { dueDate: expect.any(String) } });
@@ -467,7 +460,7 @@ describe("attendance: who can do what", () => {
     for (const d of [1, 2, 3, 4, 5, 6]) data.append("workDays", String(d));
     return data;
   };
-  const count = async (table: "attendance" | "work_schedules" | "leaves" | "attendance_edits") => (await raw`select 1 from ${raw(table)}`).length;
+  const count = async (table: "attendance" | "work_schedules" | "leaves" | "attendance_edits") => (await raw`select 1 from ${raw.unsafe(table)}`).length;
 
   it("with no session every attendance action sends you to the login page and changes nothing", async () => {
     const a = m.actions.attendance;
@@ -489,18 +482,18 @@ describe("attendance: who can do what", () => {
 
   it("an employee can check in and out for themselves only, and can't manage shifts, records, leaves or the export", async () => {
     const dev = await login("employee");
-    const other = (await raw<{ id: string }[]>`insert into users (email, name, role, password_hash) values ('other@x.com', 'زميل', 'employee', 'x') returning id`)[0];
+    const other = (await withId(async (id) => raw`insert into users (id, email, name, role, password_hash) values (${id}, 'other@x.com', 'زميل', 'employee', 'x')`))[0];
     const a = m.actions.attendance;
     expect(await a.checkInAction()).toMatchObject({ error: expect.stringContaining("وردية") });
 
     // a manager gives this employee a shift (all week, all day: the test can't depend on the time of day)
     const manager = await raw<{ id: string }[]>`select id from users where id = ${dev.id}`;
     expect(manager).toHaveLength(1);
-    await raw`insert into work_schedules (user_id, start_time, end_time, work_days, grace_minutes) values (${dev.id}, '00:00', '23:59', '{0,1,2,3,4,5,6}', 15)`;
+    await raw`insert into work_schedules (user_id, start_time, end_time, work_days, grace_minutes) values (${dev.id}, '00:00', '23:59', '[0,1,2,3,4,5,6]', 15)`;
     expect(await a.checkInAction()).toEqual({ ok: true, message: "اتسجّل حضورك" });
     expect(await a.checkInAction()).toMatchObject({ error: "سجّلت حضورك النهارده بالفعل" });
     expect((await raw<{ user_id: string }[]>`select user_id from attendance`).map((r) => r.user_id)).toEqual([dev.id]);
-    await raw`update attendance set check_in = now() - interval '1 hour'`;
+    await raw`update attendance set check_in = now(3) - interval 1 hour`;
     expect(await a.checkOutAction()).toEqual({ ok: true, message: "اتسجّل انصرافك" });
     expect(await a.checkOutAction()).toMatchObject({ error: "سجّلت انصرافك بالفعل" });
 
@@ -523,7 +516,7 @@ describe("attendance: who can do what", () => {
   it("a manager sets shifts, fixes days with a reason, enters leaves, and validation says what is wrong", async () => {
     await login("manager");
     const a = m.actions.attendance;
-    const [dev] = await raw<{ id: string }[]>`insert into users (email, name, role, password_hash) values ('dev@x.com', 'مطور', 'employee', 'x') returning id`;
+    const [dev] = await withId(async (id) => raw`insert into users (id, email, name, role, password_hash) values (${id}, 'dev@x.com', 'مطور', 'employee', 'x')`);
 
     expect(await a.saveShiftAction(null, shiftForm(dev.id, { startTime: "9am" }))).toMatchObject({ fieldErrors: { startTime: expect.any(String) } });
     expect(await a.saveShiftAction(null, shiftForm(dev.id, { graceMinutes: "500" }))).toMatchObject({ fieldErrors: { graceMinutes: expect.any(String) } });
@@ -560,8 +553,8 @@ describe("attendance: who can do what", () => {
 
   it("the CSV export is a spreadsheet-safe file for managers, and ignores a bad month", async () => {
     await login("owner");
-    const [dev] = await raw<{ id: string }[]>`insert into users (email, name, role, password_hash) values ('dev@x.com', '=HYPERLINK("x")', 'employee', 'x') returning id`;
-    await raw`insert into work_schedules (user_id, start_time, end_time, work_days, tracked_since) values (${dev.id}, '09:00', '17:00', '{0,1,2,3,4}', '2026-03-01')`;
+    const [dev] = await withId(async (id) => raw`insert into users (id, email, name, role, password_hash) values (${id}, 'dev@x.com', '=HYPERLINK("x")', 'employee', 'x')`);
+    await raw`insert into work_schedules (user_id, start_time, end_time, work_days, tracked_since) values (${dev.id}, '09:00', '17:00', '[0,1,2,3,4]', '2026-03-01')`;
     const response = await m.exportRoute.GET(new Request("http://x/api/attendance/export?month=2026-03"));
     expect(response.headers.get("Content-Type")).toContain("text/csv");
     expect(response.headers.get("Content-Disposition")).toContain("attendance-2026-03.csv");

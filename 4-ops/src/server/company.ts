@@ -22,7 +22,7 @@ export async function getCompany(): Promise<Company> {
 export async function saveCompany(company: Company): Promise<void> {
   await sql()`
     insert into company_settings (id, name, address, email, phone, tax_number, updated_at)
-    values (1, ${company.name}, ${company.address}, ${company.email}, ${company.phone}, ${company.taxNumber}, now())
-    on conflict (id) do update set name = excluded.name, address = excluded.address, email = excluded.email,
-                                   phone = excluded.phone, tax_number = excluded.tax_number, updated_at = now()`;
+    values (1, ${company.name}, ${company.address}, ${company.email}, ${company.phone}, ${company.taxNumber}, now(3))
+    on duplicate key update name = values(name), address = values(address), email = values(email),
+                            phone = values(phone), tax_number = values(tax_number), updated_at = now(3)`;
 }

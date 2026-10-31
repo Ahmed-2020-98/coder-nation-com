@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { sql } from "./db";
 import { dummyHash, verifyPassword } from "./password";
 import { hit, resetLimit } from "./rate-limit";
@@ -49,9 +49,9 @@ export async function signIn(
   await resetLimit(perAccount);
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  await db`insert into sessions (admin_id, token_hash, expires_at, user_agent) values (${admin.id}, ${sha256(token)}, ${expiresAt}, ${context.userAgent})`;
-  await db`update admins set last_login_at = now() where id = ${admin.id}`;
-  await db`delete from sessions where expires_at < now()`;
+  await db`insert into sessions (id, admin_id, token_hash, expires_at, user_agent) values (${randomUUID()}, ${admin.id}, ${sha256(token)}, ${expiresAt}, ${context.userAgent})`;
+  await db`update admins set last_login_at = now(3) where id = ${admin.id}`;
+  await db`delete from sessions where expires_at < now(3)`;
   return { ok: true, token, expiresAt };
 }
 
@@ -59,7 +59,7 @@ export async function adminFromToken(token: string): Promise<Admin | null> {
   if (token.length < 20 || token.length > 100) return null;
   const [row] = await sql()<Admin[]>`
     select a.id, a.email from sessions s join admins a on a.id = s.admin_id
-    where s.token_hash = ${sha256(token)} and s.expires_at > now()`;
+    where s.token_hash = ${sha256(token)} and s.expires_at > now(3)`;
   return row ?? null;
 }
 

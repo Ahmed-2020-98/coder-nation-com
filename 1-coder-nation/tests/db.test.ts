@@ -1,12 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import postgres from "postgres";
-import { migrate } from "../db/migrate.mjs";
+import { randomUUID } from "node:crypto";
+import type { Db } from "../src/server/sql";
+import { clearTables, createTestDb, dropTestDb, type TestDb } from "./helpers/db";
 
-// Integration tests against a throw-away Postgres database, created here and dropped at the end. They never touch
+// Integration tests against a throw-away MySQL database, created here and dropped at the end. They never touch
 // any other database on the machine (the name is random and carries the prefix below).
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://localhost:5432/postgres";
-const DB_NAME = `cn_site_test_${Math.random().toString(36).slice(2, 10)}`;
 const CTX = { ipHash: "iphash-test-1", userAgent: "vitest" };
 
 type Mods = {
@@ -18,15 +17,15 @@ type Mods = {
   password: typeof import("@/server/password");
 };
 const m = {} as Mods;
-let raw: ReturnType<typeof postgres>;
+let raw: Db;
+let testDb: TestDb;
 
 beforeAll(async () => {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create database ${DB_NAME}`);
-  await admin.end();
-  process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
+  testDb = await createTestDb("cn_site_test", { migrate: false });
+  raw = testDb.raw;
+  process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
-  raw = postgres(process.env.DATABASE_URL, { max: 2, onnotice: () => {} });
+  const { migrate } = await import("../db/migrate.mjs");
   expect(await migrate(raw)).toEqual(["001_init.sql", "002_media.sql"]);
   expect(await migrate(raw)).toEqual([]); // idempotent
   vi.resetModules();
@@ -40,14 +39,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await m.db?.closeDatabase();
-  await raw?.end({ timeout: 5 });
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`drop database if exists ${DB_NAME} with (force)`);
-  await admin.end();
+  await dropTestDb(testDb);
 });
 
 beforeEach(async () => {
-  await raw`truncate leads, sessions, admins, rate_limits, settings, media restart identity cascade`;
+  await clearTables(raw, ["leads", "sessions", "admins", "rate_limits", "settings", "media"]);
 });
 
 const input = (over: Partial<import("@/server/leads").LeadInput> = {}) => ({
@@ -110,7 +106,7 @@ describe("rate limiter", () => {
     expect(blocked.allowed).toBe(false);
     expect(blocked.retryAfterSeconds).toBeGreaterThan(0);
     expect((await m.rate.hit("other", 3, 60)).allowed).toBe(true); // keys are independent
-    await raw`update rate_limits set window_start = now() - interval '2 minutes' where key = 'k'`;
+    await raw`update rate_limits set window_start = now(3) - interval 2 minute where name = 'k'`;
     expect(await m.rate.hit("k", 3, 60)).toMatchObject({ allowed: true, count: 1 });
     await m.rate.resetLimit("k");
     expect(await m.rate.hit("k", 3, 60)).toMatchObject({ count: 1 });
@@ -124,7 +120,7 @@ describe("rate limiter", () => {
 
 describe("sign-in and sessions", () => {
   async function seedAdmin(email = "boss@codernation.com", password = "a long enough password") {
-    await raw`insert into admins (email, password_hash) values (${email}, ${await m.password.hashPassword(password)})`;
+    await raw`insert into admins (id, email, password_hash) values (${randomUUID()}, ${email}, ${await m.password.hashPassword(password)})`;
     return { email, password };
   }
 
@@ -166,7 +162,7 @@ describe("sign-in and sessions", () => {
     const { password } = await seedAdmin();
     const result = await m.auth.signIn("boss@codernation.com", password, CTX);
     if (!result.ok) throw new Error("sign-in failed");
-    await raw`update sessions set expires_at = now() - interval '1 second'`;
+    await raw`update sessions set expires_at = now(3) - interval 1 second`;
     expect(await m.auth.adminFromToken(result.token)).toBeNull();
     expect(await m.auth.adminFromToken("x".repeat(43))).toBeNull();
     expect(await m.auth.adminFromToken("short")).toBeNull();
@@ -195,7 +191,7 @@ describe("settings", () => {
     await m.settings.writeSettings(next); // upsert, not a duplicate-key error
     expect(await m.settings.readSettings()).toEqual(next);
     expect(await raw`select 1 from settings`).toHaveLength(1);
-    await raw`update settings set value = '{"whatsappNumber": 5, "email": "<script>"}'::jsonb`;
+    await raw`update settings set value = ${raw.json({ whatsappNumber: 5, email: "<script>" })}`;
     expect(await m.settings.readSettings()).toEqual(m.settings.DEFAULT_SETTINGS);
   });
 });

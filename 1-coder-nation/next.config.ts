@@ -6,9 +6,8 @@ const nextConfig: NextConfig = {
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,
-  // The Postgres driver runs only on the server and is loaded from node_modules, never bundled (it also kept
-  // leaking a copy of its own source into .next/static).
-  serverExternalPackages: ["postgres"],
+  // The MySQL driver runs only on the server and is loaded from node_modules, never bundled.
+  serverExternalPackages: ["mysql2"],
   async headers() {
     return [
       {

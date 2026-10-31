@@ -1,6 +1,6 @@
 # Coder Nation Ops: النظام الداخلي للفريق
 
-تطبيق داخلي (Next.js 16 + Postgres، عربي RTL) لفريق Coder Nation. **المراحل 1 و2 و3: الحسابات والأدوار + الـ CRM + العروض الفنية والمالية بـ PDF + المهام والمشاريع + الحضور والانصراف.**
+تطبيق داخلي (Next.js 16 + MySQL، عربي RTL) لفريق Coder Nation. **المراحل 1 و2 و3: الحسابات والأدوار + الـ CRM + العروض الفنية والمالية بـ PDF + المهام والمشاريع + الحضور والانصراف.**
 
 > للفريق فقط، ومفيش SSO لسه (تسجيل دخول بإيميل وباسورد). لو هيتنشر على دومين، لازم الأول HTTPS وتقرير الـ SSO.
 
@@ -8,7 +8,7 @@
 
 ```bash
 npm install
-createdb coder_nation_ops
+mysql -uroot -e 'create database coder_nation_ops character set utf8mb4 collate utf8mb4_unicode_ci'
 cp .env.example .env.local          # عدّل DATABASE_URL و IP_HASH_SALT و INTAKE_SECRET
 npm run db:migrate
 ```
@@ -102,7 +102,7 @@ src/
 ├─ lib/               crm-rules · crm-flow · money · proposal-rules · proposal-templates · task-rules · task-flow · project-plan · attendance-rules · csv · dates · format
 ├─ components/        AppShell · ActionForm · QuickMove · TaskCard · CheckCard · attendance-ui · badges · task-badges · ui/*
 └─ proxy.ts
-tests/                101 اختبار (Postgres مؤقتة بتتعمل وتتمسح)
+tests/                102 اختبار (قواعد MySQL مؤقتة بتتعمل وتتمسح)
 ```
 
 ## حدود معروفة

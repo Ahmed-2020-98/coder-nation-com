@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { UUID_RE } from "@/lib/content-model";
 import { MAX_IMAGE_BYTES } from "@/lib/content-spec";
 import { sql } from "./db";
@@ -33,9 +34,9 @@ export async function storeImage(bytes: Uint8Array): Promise<StoreResult> {
   const [{ total }] = await db<{ total: string }[]>`select coalesce(sum(size_bytes), 0) as total from media`;
   if (Number(total) + bytes.byteLength > MAX_TOTAL_MEDIA_BYTES) return { ok: false, error: "مساحة الصور امتلأت. شيل صور قديمة أو صغّر الأحجام." };
 
-  const [row] = await db<{ id: string }[]>`
-    insert into media (mime, data, size_bytes) values (${mime}, ${Buffer.from(bytes)}, ${bytes.byteLength}) returning id`;
-  return { ok: true, id: row.id };
+  const id = randomUUID();
+  await db`insert into media (id, mime, data, size_bytes) values (${id}, ${mime}, ${Buffer.from(bytes)}, ${bytes.byteLength})`;
+  return { ok: true, id };
 }
 
 export async function getImage(id: string): Promise<{ mime: ImageMime; data: Buffer } | null> {
@@ -50,9 +51,9 @@ export async function getImage(id: string): Promise<{ mime: ImageMime; data: Buf
  */
 export async function purgeOrphanMedia(referenced: ReadonlySet<string>, graceMinutes = 60): Promise<number> {
   const db = sql();
-  const old = await db<{ id: string }[]>`select id from media where created_at < now() - make_interval(mins => ${graceMinutes})`;
+  const old = await db<{ id: string }[]>`select id from media where created_at < now(3) - interval ${graceMinutes} minute`;
   const doomed = old.map((row) => row.id).filter((id) => !referenced.has(id.toLowerCase()));
   if (doomed.length === 0) return 0;
-  await db`delete from media where id in ${db(doomed)}`;
+  await db`delete from media where id in ${db.list(doomed)}`;
   return doomed.length;
 }

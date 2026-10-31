@@ -1,13 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import postgres from "postgres";
-import { migrate } from "../db/migrate.mjs";
+import { randomUUID } from "node:crypto";
+import type { Db } from "../src/server/sql";
+import { clearTables, createTestDb, dropTestDb, type TestDb } from "./helpers/db";
 
 // The public form action and the admin actions, run against a throw-away database with Next's request APIs faked
 // (headers, cookies, cache invalidation). What matters here: strangers can't write garbage, and nothing in the panel
 // works without a valid session.
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://localhost:5432/postgres";
-const DB_NAME = `cn_site_test_${Math.random().toString(36).slice(2, 10)}`;
 
 const requestHeaders = new Headers();
 const cookieJar = new Map<string, string>();
@@ -43,7 +42,8 @@ type Mods = {
   password: typeof import("@/server/password");
 };
 const m = {} as Mods;
-let raw: ReturnType<typeof postgres>;
+let raw: Db;
+let testDb: TestDb;
 
 const form = (values: Record<string, string>) => {
   const data = new FormData();
@@ -61,13 +61,10 @@ const redirectTarget = async (run: () => Promise<unknown>) => {
 };
 
 beforeAll(async () => {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create database ${DB_NAME}`);
-  await admin.end();
-  process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
+  testDb = await createTestDb("cn_site_test");
+  raw = testDb.raw;
+  process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
-  raw = postgres(process.env.DATABASE_URL, { max: 2, onnotice: () => {} });
-  await migrate(raw);
   vi.resetModules();
   m.db = await import("@/server/db");
   m.site = await import("@/app/(site)/actions");
@@ -78,14 +75,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await m.db?.closeDatabase();
-  await raw?.end({ timeout: 5 });
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`drop database if exists ${DB_NAME} with (force)`);
-  await admin.end();
+  await dropTestDb(testDb);
 });
 
 beforeEach(async () => {
-  await raw`truncate leads, sessions, admins, rate_limits, settings, media restart identity cascade`;
+  await clearTables(raw, ["leads", "sessions", "admins", "rate_limits", "settings", "media"]);
   cookieJar.clear();
   updatedTags.length = 0;
   for (const key of [...requestHeaders.keys()]) requestHeaders.delete(key);
@@ -127,27 +121,27 @@ describe("submitLead (public form)", () => {
   it("when the database is down it fails politely, without leaking anything about it", async () => {
     const saved = process.env.DATABASE_URL;
     await m.db.closeDatabase();
-    process.env.DATABASE_URL = "postgres://localhost:1/nope";
+    process.env.DATABASE_URL = "mysql://127.0.0.1:1/nope";
     const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await m.site.submitLead(form(goodLead));
     quiet.mockRestore();
     process.env.DATABASE_URL = saved;
     await m.db.closeDatabase();
     expect(result).toMatchObject({ ok: false, reason: "server" });
-    expect(JSON.stringify(result)).not.toMatch(/postgres|ECONNREFUSED|localhost|nope/i);
+    expect(JSON.stringify(result)).not.toMatch(/mysql|postgres|ECONNREFUSED|127\.0\.0\.1|localhost|nope/i);
   });
 });
 
 describe("admin actions", () => {
   async function signInAsAdmin() {
-    await raw`insert into admins (email, password_hash) values ('boss@codernation.com', ${await m.password.hashPassword("a long enough password")}) on conflict do nothing`;
+    await raw`insert into admins (id, email, password_hash) values (${randomUUID()}, 'boss@codernation.com', ${await m.password.hashPassword("a long enough password")}) on duplicate key update email = email`;
     const target = await redirectTarget(() => m.admin.loginAction(null, form({ email: "boss@codernation.com", password: "a long enough password" })));
     expect(target).toBe("/admin");
     expect(cookieJar.get("cn_admin")).toBeTruthy();
   }
 
   it("login: wrong credentials say so generically; right ones set the session cookie and go to /admin", async () => {
-    await raw`insert into admins (email, password_hash) values ('boss@codernation.com', ${await m.password.hashPassword("a long enough password")})`;
+    await raw`insert into admins (id, email, password_hash) values (${randomUUID()}, 'boss@codernation.com', ${await m.password.hashPassword("a long enough password")})`;
     expect(await m.admin.loginAction(null, form({ email: "boss@codernation.com", password: "wrong wrong wrong" }))).toEqual({ error: "الإيميل أو الباسورد غلط" });
     expect(await m.admin.loginAction(null, form({ email: "ghost@codernation.com", password: "wrong wrong wrong" }))).toEqual({ error: "الإيميل أو الباسورد غلط" });
     expect(await m.admin.loginAction(null, form({ email: "", password: "" }))).toMatchObject({ error: expect.any(String) });
@@ -156,7 +150,8 @@ describe("admin actions", () => {
   });
 
   it("EVERY admin action refuses without a session, and changes nothing", async () => {
-    const [{ id }] = await raw`insert into leads (name, phone) values ('أحمد', '+201000000001') returning id`;
+    const id = randomUUID();
+    await raw`insert into leads (id, name, phone) values (${id}, 'أحمد', '+201000000001')`;
     expect(await redirectTarget(() => m.admin.updateLeadAction(null, form({ id, status: "closed", note: "hacked" })))).toBe("/admin/login");
     expect(await redirectTarget(() => m.admin.deleteLeadAction(form({ id })))).toBe("/admin/login");
     expect(await redirectTarget(() => m.admin.saveSettingsAction(null, form({ whatsappNumber: "201111111111" })))).toBe("/admin/login");
@@ -167,14 +162,16 @@ describe("admin actions", () => {
 
   it("an expired or forged cookie is no session either", async () => {
     cookieJar.set("cn_admin", "f".repeat(43));
-    const [{ id }] = await raw`insert into leads (name, phone) values ('أحمد', '+201000000001') returning id`;
+    const id = randomUUID();
+    await raw`insert into leads (id, name, phone) values (${id}, 'أحمد', '+201000000001')`;
     expect(await redirectTarget(() => m.admin.deleteLeadAction(form({ id })))).toBe("/admin/login");
     expect(await raw`select 1 from leads`).toHaveLength(1);
   });
 
   it("with a session: updates a lead, rejects a bad status, deletes", async () => {
     await signInAsAdmin();
-    const [{ id }] = await raw`insert into leads (name, phone) values ('أحمد', '+201000000001') returning id`;
+    const id = randomUUID();
+    await raw`insert into leads (id, name, phone) values (${id}, 'أحمد', '+201000000001')`;
     expect(await m.admin.updateLeadAction(null, form({ id, status: "contacted", note: "  كلمته  " }))).toEqual({ ok: true });
     expect(await raw`select status, note from leads where id = ${id}`).toEqual([{ status: "contacted", note: "كلمته" }]);
     expect(await m.admin.updateLeadAction(null, form({ id, status: "weird", note: "" }))).toEqual({ error: "حالة غير صالحة" });
@@ -222,15 +219,15 @@ describe("CSV export route", () => {
   const request = (query = "") => new Request(`http://localhost/admin/leads/export${query}`);
 
   it("without a session it redirects to login and returns no data", async () => {
-    await raw`insert into leads (name, phone) values ('سري', '+201000000001')`;
+    await raw`insert into leads (id, name, phone) values (${randomUUID()}, 'سري', '+201000000001')`;
     const { GET } = await import("@/app/(admin)/admin/(panel)/leads/export/route");
     expect(await redirectTarget(() => GET(request()))).toBe("/admin/login");
   });
 
   it("with a session it returns a BOM'd CSV of the leads, neutralizes formulas, and honours the filters", async () => {
-    await raw`insert into admins (email, password_hash) values ('boss@codernation.com', ${await m.password.hashPassword("a long enough password")})`;
+    await raw`insert into admins (id, email, password_hash) values (${randomUUID()}, 'boss@codernation.com', ${await m.password.hashPassword("a long enough password")})`;
     await redirectTarget(() => m.admin.loginAction(null, form({ email: "boss@codernation.com", password: "a long enough password" })));
-    await raw`insert into leads (name, phone, message, status) values ('=HYPERLINK("http://evil")', '+201000000001', 'a,b "c"', 'new'), ('عميل مغلق', '+201000000002', null, 'closed')`;
+    await raw`insert into leads (id, name, phone, message, status) values (${randomUUID()}, '=HYPERLINK("http://evil")', '+201000000001', 'a,b "c"', 'new'), (${randomUUID()}, 'عميل مغلق', '+201000000002', null, 'closed')`;
     const { GET } = await import("@/app/(admin)/admin/(panel)/leads/export/route");
 
     const all = await GET(request());
@@ -270,7 +267,7 @@ describe("page content: actions, image upload and the public image route", () =>
     return new Request("http://localhost/admin/content/upload", { method: "POST", body, headers });
   };
   async function signIn() {
-    await raw`insert into admins (email, password_hash) values ('boss@codernation.com', ${await m.password.hashPassword("a long enough password")}) on conflict do nothing`;
+    await raw`insert into admins (id, email, password_hash) values (${randomUUID()}, 'boss@codernation.com', ${await m.password.hashPassword("a long enough password")}) on duplicate key update email = email`;
     await redirectTarget(() => m.admin.loginAction(null, form({ email: "boss@codernation.com", password: "a long enough password" })));
     expect(cookieJar.get("cn_admin")).toBeTruthy();
   }
@@ -294,20 +291,20 @@ describe("page content: actions, image upload and the public image route", () =>
     const edited = { ...(await hero()), badge: "نستقبل مشاريع جديدة هذا الشهر" };
     expect(await saveSectionAction("hero", edited)).toEqual({ ok: true });
     expect(updatedTags).toEqual(["content"]);
-    expect((await raw`select value from settings where key = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
+    expect((await raw`select value from settings where name = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
 
     updatedTags.length = 0;
     const bad = await saveSectionAction("hero", { ...edited, titleLead: "", primaryCta: { label: "x", href: "javascript:alert(1)" } });
     expect(bad).toMatchObject({ ok: false, fieldErrors: { titleLead: expect.any(String), "primaryCta.href": expect.any(String) } });
     expect(updatedTags).toEqual([]);
-    expect((await raw`select value from settings where key = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
+    expect((await raw`select value from settings where name = 'content'`)[0].value).toMatchObject({ sections: { hero: { badge: "نستقبل مشاريع جديدة هذا الشهر" } } });
 
     expect(await saveSectionAction("../../etc/passwd", edited)).toMatchObject({ ok: false });
     expect(await saveSectionAction("__proto__", edited)).toMatchObject({ ok: false });
     expect(await setSectionHiddenAction("contact", true)).toMatchObject({ ok: false });
     expect(await setSectionHiddenAction("work", true)).toEqual({ ok: true });
     expect(await resetSectionAction("hero")).toEqual({ ok: true });
-    expect((await raw`select value from settings where key = 'content'`)[0].value).toEqual({ sections: {}, hidden: ["work"] });
+    expect((await raw`select value from settings where name = 'content'`)[0].value).toEqual({ sections: {}, hidden: ["work"] });
     expect(updatedTags.filter((tag) => tag === "content")).toHaveLength(2);
   });
 
@@ -340,7 +337,8 @@ describe("page content: actions, image upload and the public image route", () =>
 
   it("the public image route: serves the stored bytes with long-lived caching and safe headers, 304s on a repeat, 404s on anything else", async () => {
     const { GET } = await mediaRoute();
-    const [{ id }] = await raw`insert into media (mime, data, size_bytes) values ('image/png', ${Buffer.from(PNG)}, ${PNG.length}) returning id`;
+    const id = randomUUID();
+    await raw`insert into media (id, mime, data, size_bytes) values (${id}, 'image/png', ${Buffer.from(PNG)}, ${PNG.length})`;
     const get = (value: string, headers: Record<string, string> = {}) => GET(new Request(`http://localhost/media/${value}`, { headers }), { params: Promise.resolve({ id: value }) });
 
     const response = await get(id);

@@ -1,7 +1,8 @@
 // npm run admin:create -- --email you@example.com [--reset]
 // Asks for the password twice with the keystrokes hidden, so it never appears on screen, in shell history or in logs.
 // --reset sets a new password for an existing admin and signs them out everywhere.
-import postgres from "postgres";
+import { randomUUID } from "node:crypto";
+import { connect } from "../src/server/sql.ts";
 import { hashPassword, passwordProblem } from "../src/server/password.ts";
 import { loadEnv } from "./lib/env.mjs";
 
@@ -50,7 +51,7 @@ function askHidden(prompt) {
   });
 }
 
-const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+const sql = connect(process.env.DATABASE_URL, { connectionLimit: 1 });
 try {
   const [existing] = await sql`select id from admins where email = ${email}`;
   if (existing && !reset) fail(`${email} already exists. Use --reset to change the password.`);
@@ -69,12 +70,12 @@ try {
     });
     console.log(`Password updated for ${email}; all sessions were signed out.`);
   } else {
-    await sql`insert into admins (email, password_hash) values (${email}, ${hash})`;
+    await sql`insert into admins (id, email, password_hash) values (${randomUUID()}, ${email}, ${hash})`;
     console.log(`Admin created: ${email}. Sign in at /admin/login`);
   }
 } catch (error) {
   console.error("Failed:", error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
-  await sql.end({ timeout: 5 });
+  await sql.end();
 }

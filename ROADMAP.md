@@ -20,7 +20,7 @@
 ## 2. النشر (Deployment)
 
 - [ ] دومين وHTTPS.
-- [ ] قاعدة Postgres مُدارة (Marketplace) للموقع، وواحدة للـ Ops، مع تشغيل الـ migrations عليهم.
+- [ ] قاعدتين MySQL على Hostinger (واحدة للموقع وواحدة للـ Ops)، مع تشغيل الـ migrations عليهم. (الكود اتنقل من Postgres لـ MySQL محليًا، والإنتاج لسه.)
 - [ ] متغيرات البيئة في الاستضافة: `DATABASE_URL` و`IP_HASH_SALT` للاتنين، و`SITE_URL`، ومفتاح الـ intake المشترك (`OPS_INTAKE_SECRET` في الموقع = `INTAKE_SECRET` في الـ Ops) و`OPS_INTAKE_URL`.
 - [ ] إنشاء حساب المالك في الـ Ops وحساب الأدمن في الموقع على قاعدة الإنتاج (`user:create` و`admin:create`).
 - [ ] إدخال إعدادات الموقع من `/admin/settings` على الإنتاج (القاعدة جديدة).

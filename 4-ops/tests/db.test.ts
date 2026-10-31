@@ -1,11 +1,9 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import postgres from "postgres";
-import { migrate } from "../db/migrate.mjs";
+import type { Db } from "../src/server/sql";
+import { clearTables, createTestDb, dropTestDb, withId, type TestDb } from "./helpers/db";
 
 // Integration tests on a throw-away Postgres database (random name, dropped at the end; nothing else is touched).
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://localhost:5432/postgres";
-const DB_NAME = `cn_ops_test_${Math.random().toString(36).slice(2, 10)}`;
 const CTX = { ipHash: "iphash-1", userAgent: "vitest" };
 
 type Mods = {
@@ -21,15 +19,15 @@ type Mods = {
   attendance: typeof import("@/server/attendance");
 };
 const m = {} as Mods;
-let raw: ReturnType<typeof postgres>;
+let raw: Db;
+let testDb: TestDb;
 
 beforeAll(async () => {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create database ${DB_NAME}`);
-  await admin.end();
-  process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
+  testDb = await createTestDb("cn_ops_test", { migrate: false });
+  raw = testDb.raw;
+  process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
-  raw = postgres(process.env.DATABASE_URL, { max: 4, onnotice: () => {} });
+  const { migrate } = await import("../db/migrate.mjs");
   expect(await migrate(raw)).toEqual(["001_init.sql", "002_tasks.sql", "003_attendance.sql"]);
   expect(await migrate(raw)).toEqual([]);
   vi.resetModules();
@@ -47,21 +45,18 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await m.db?.closeDatabase();
-  await raw?.end({ timeout: 5 });
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`drop database if exists ${DB_NAME} with (force)`);
-  await admin.end();
+  await dropTestDb(testDb);
 });
 
 beforeEach(async () => {
-  await raw`truncate users, sessions, rate_limits, clients, contacts, deals, activities, follow_ups, proposals, proposal_items, proposal_milestones, proposal_counters, projects, tasks, task_events, work_schedules, attendance, attendance_edits, leaves restart identity cascade`;
+  await clearTables(raw, ["leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
 });
 
 async function seedUser(email: string, role: "owner" | "manager" | "employee", extra: { active?: boolean; must?: boolean; password?: string } = {}) {
   const password = extra.password ?? "a long enough password";
-  const [row] = await raw<{ id: string }[]>`
-    insert into users (email, name, role, password_hash, active, must_change_password)
-    values (${email}, ${email.split("@")[0] + " user"}, ${role}, ${await m.password.hashPassword(password)}, ${extra.active ?? true}, ${extra.must ?? false}) returning id`;
+  const [row] = await withId(async (id) => raw`
+    insert into users (id, email, name, role, password_hash, active, must_change_password)
+    values (${id}, ${email}, ${email.split("@")[0] + " user"}, ${role}, ${await m.password.hashPassword(password)}, ${extra.active ?? true}, ${extra.must ?? false})`);
   return { id: row.id, email, password };
 }
 
@@ -153,7 +148,7 @@ describe("CRM", () => {
     const first = await m.crm.createDeal(newDeal(), null);
     const second = await m.crm.createDeal(newDeal({ title: "تطبيق", client: { name: "اسم مختلف", phone: "٠١٠٠٠٠٠٠٠٠١".replace(/^٠١/, "+٢٠١"), email: null } }), null);
     expect(first.created).toBe(true);
-    expect(await raw`select count(*)::int as n from clients`).toEqual([{ n: 1 }]);
+    expect(await raw`select count(*) as n from clients`).toEqual([{ n: 1 }]);
     const deal = await m.crm.getDeal(second.id);
     expect(deal).toMatchObject({ title: "تطبيق", stage: "new", clientName: "شركة النور" });
     expect((await m.crm.listActivities(first.id))[0]).toMatchObject({ kind: "system" });
@@ -165,11 +160,11 @@ describe("CRM", () => {
     const b = await m.intake.ingestWebsiteLead(lead);
     expect(a.created).toBe(true);
     expect(b).toEqual({ id: a.id, created: false });
-    expect(await raw`select count(*)::int as n from deals`).toEqual([{ n: 1 }]);
+    expect(await raw`select count(*) as n from deals`).toEqual([{ n: 1 }]);
     expect(await m.crm.getDeal(a.id)).toMatchObject({ source: "website", stage: "new", service: "تطبيق موبايل", message: "عايزة تطبيق" });
     const parallel = await Promise.allSettled([1, 2, 3, 4].map(() => m.intake.ingestWebsiteLead({ ...lead, externalId: "99999999-aaaa-bbbb-cccc-dddddddddddd" })));
     expect(parallel.filter((r) => r.status === "fulfilled" && r.value.created)).toHaveLength(1);
-    expect(await raw`select count(*)::int as n from deals`).toEqual([{ n: 2 }]);
+    expect(await raw`select count(*) as n from deals`).toEqual([{ n: 2 }]);
   });
 
   it("moves stages with a log entry, requires a reason to lose, and reopens a closed deal", async () => {
@@ -190,7 +185,7 @@ describe("CRM", () => {
 
   it("the database itself refuses a lost deal without a reason and a reason on a deal that isn't lost", async () => {
     const { id } = await m.crm.createDeal(newDeal(), null);
-    await expect(raw`update deals set stage = 'lost', closed_at = now() where id = ${id}`).rejects.toThrow();
+    await expect(raw`update deals set stage = 'lost', closed_at = now(3) where id = ${id}`).rejects.toThrow();
     await expect(raw`update deals set lost_reason = 'السعر' where id = ${id}`).rejects.toThrow();
     await expect(raw`update deals set stage = 'won' where id = ${id}`).rejects.toThrow();
   });
@@ -517,7 +512,7 @@ describe("tasks and projects", () => {
     await m.tasks.createTask(newTask({ title: "بتاعة زميل", assigneeId: other.id, dueDate: past }), boss.id);
     const finished = await m.tasks.createTask(newTask({ title: "خلصت من زمان", assigneeId: dev.id, dueDate: past }), boss.id);
     await m.tasks.changeStatus(finished, "done", null, { id: boss.id, role: "owner" });
-    await raw`update tasks set completed_at = now() - interval '30 days' where id = ${finished}`;
+    await raw`update tasks set completed_at = now(3) - interval 30 day where id = ${finished}`;
 
     expect((await m.tasks.listTasks({ assigneeId: dev.id })).map((t) => t.title).sort()).toEqual(["خلصت من زمان", "قدام", "متأخرة"].sort());
     expect((await m.tasks.listTasks({ assigneeId: dev.id, doneWithinDays: 14 })).map((t) => t.title).sort()).toEqual(["قدام", "متأخرة"].sort());
@@ -582,7 +577,7 @@ describe("attendance", () => {
     expect(await m.attendance.saveSchedule("00000000-0000-0000-0000-000000000000", shift)).toMatchObject({ ok: false });
     const off = await seedUser("off@x.com", "employee", { active: false });
     expect(await m.attendance.saveSchedule(off.id, shift)).toMatchObject({ ok: false });
-    await expect(raw`update work_schedules set work_days = '{7}' where user_id = ${user.id}`).rejects.toThrow();
+    await expect(raw`update work_schedules set work_days = '[7]' where user_id = ${user.id}`).rejects.toThrow();
     expect(await m.attendance.removeSchedule(user.id)).toBe(true);
     expect(await m.attendance.removeSchedule(user.id)).toBe(false);
   });

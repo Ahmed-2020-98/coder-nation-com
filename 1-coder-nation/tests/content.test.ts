@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import postgres from "postgres";
-import { migrate } from "../db/migrate.mjs";
+import { randomUUID } from "node:crypto";
+import type { Db } from "../src/server/sql";
+import { clearTables, createTestDb, dropTestDb, type TestDb } from "./helpers/db";
 import { ar } from "@/content/ar";
 import { toFormState, toPayload } from "@/lib/content-form";
 import {
@@ -249,8 +250,6 @@ describe("what the page shows", () => {
 // ---------------------------------------------------------------------------------------------------------------------
 // Database side. A throw-away database, created here and dropped at the end; no other database is touched.
 
-const ADMIN_URL = process.env.TEST_ADMIN_DATABASE_URL ?? "postgres://localhost:5432/postgres";
-const DB_NAME = `cn_site_test_${Math.random().toString(36).slice(2, 10)}`;
 
 type Mods = {
   db: typeof import("@/server/db");
@@ -258,15 +257,13 @@ type Mods = {
   media: typeof import("@/server/media");
 };
 const m = {} as Mods;
-let raw: ReturnType<typeof postgres>;
+let raw: Db;
+let testDb: TestDb;
 
 beforeAll(async () => {
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`create database ${DB_NAME}`);
-  await admin.end();
-  process.env.DATABASE_URL = ADMIN_URL.replace(/\/[^/]*$/, `/${DB_NAME}`);
-  raw = postgres(process.env.DATABASE_URL, { max: 2, onnotice: () => {} });
-  await migrate(raw);
+  testDb = await createTestDb("cn_site_test");
+  raw = testDb.raw;
+  process.env.DATABASE_URL = testDb.url;
   vi.resetModules();
   m.db = await import("@/server/db");
   m.content = await import("@/server/content");
@@ -275,14 +272,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await m.db?.closeDatabase();
-  await raw?.end({ timeout: 5 });
-  const admin = postgres(ADMIN_URL, { max: 1, onnotice: () => {} });
-  await admin.unsafe(`drop database if exists ${DB_NAME} with (force)`);
-  await admin.end();
+  await dropTestDb(testDb);
 });
 
 beforeEach(async () => {
-  await raw`truncate media, settings restart identity cascade`;
+  await clearTables(raw, ["media", "settings"]);
 });
 
 const png = (extra = 0) => new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(24 + extra).fill(7)]);
@@ -356,7 +350,7 @@ describe("saving the page text", () => {
   });
 
   it("the page text survives when the table holds something odd: the view falls back to the shipped text", async () => {
-    await raw`insert into settings (key, value) values ('content', '"just a string"'::jsonb)`;
+    await raw`insert into settings (name, value) values ('content', ${raw.json("just a string")})`;
     expect(computeView(await m.content.readStored()).content).toEqual(ar);
   });
 });
@@ -387,8 +381,8 @@ describe("uploaded images", () => {
   });
 
   it("the table itself refuses a type that is not a raster image", async () => {
-    await expect(raw`insert into media (mime, data, size_bytes) values ('image/svg+xml', ${Buffer.from("x")}, 1)`).rejects.toThrow();
-    await expect(raw`insert into media (mime, data, size_bytes) values ('image/png', ${Buffer.from("xx")}, 1)`).rejects.toThrow();
+    await expect(raw`insert into media (id, mime, data, size_bytes) values (${randomUUID()}, 'image/svg+xml', ${Buffer.from("x")}, 1)`).rejects.toThrow();
+    await expect(raw`insert into media (id, mime, data, size_bytes) values (${randomUUID()}, 'image/png', ${Buffer.from("xx")}, 1)`).rejects.toThrow();
   });
 
   it("getImage only answers for a well-formed id that exists", async () => {
@@ -401,7 +395,7 @@ describe("uploaded images", () => {
     const used = (await m.media.storeImage(png())) as { id: string };
     const orphan = (await m.media.storeImage(png(1))) as { id: string };
     const fresh = (await m.media.storeImage(png(2))) as { id: string };
-    await raw`update media set created_at = now() - interval '3 hours' where id in (${used.id}, ${orphan.id})`;
+    await raw`update media set created_at = now(3) - interval 3 hour where id in (${used.id}, ${orphan.id})`;
     expect(await m.media.purgeOrphanMedia(new Set([used.id]))).toBe(1);
     const left = (await raw`select id from media`).map((row) => row.id).sort();
     expect(left).toEqual([used.id, fresh.id].sort()); // `fresh` may still belong to an unsaved form
@@ -412,7 +406,7 @@ describe("uploaded images", () => {
     const ids = async () => (await raw`select id from media`).map((row) => row.id as string).sort();
     const first = await store(png());
     const stray = await store(png(1)); // uploaded, never used
-    await raw`update media set created_at = now() - interval '3 hours'`;
+    await raw`update media set created_at = now(3) - interval 3 hour`;
 
     const work = clone(defaultsFor("work")) as Plain & { items: Plain[] };
     work.items[0].image = first;
@@ -426,7 +420,7 @@ describe("uploaded images", () => {
 
     await m.content.resetSection("work");
     expect(await ids()).toEqual([second]); // unused now, but younger than the grace period: it may belong to an open form
-    await raw`update media set created_at = now() - interval '3 hours'`;
+    await raw`update media set created_at = now(3) - interval 3 hour`;
     await m.content.resetSection("work");
     expect(await ids()).toEqual([]);
     expect(stray).not.toBe(first);

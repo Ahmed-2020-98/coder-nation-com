@@ -1,5 +1,5 @@
 import "server-only";
-import postgres, { type Sql } from "postgres";
+import { connect, type Db } from "./sql";
 
 export class DatabaseUnavailableError extends Error {
   constructor(message = "DATABASE_URL is not set") {
@@ -9,26 +9,19 @@ export class DatabaseUnavailableError extends Error {
 }
 
 declare global {
-  var __codernationSql: Sql | undefined;
+  var __codernationSql: Db | undefined;
 }
 
-/** Lazy shared connection pool (kept on globalThis so dev hot reloads don't leak connections). */
-export function sql(): Sql {
+/** Lazy shared connection pool (kept on globalThis so dev hot reloads don't leak connections). MySQL / MariaDB. */
+export function sql(): Db {
   const url = process.env.DATABASE_URL?.trim();
   if (!url) throw new DatabaseUnavailableError();
-  return (globalThis.__codernationSql ??= postgres(url, {
-    max: 5,
-    idle_timeout: 20,
-    connect_timeout: 5,
-    // Works behind connection poolers (Neon/pgbouncer) too.
-    prepare: false,
-    onnotice: () => {},
-  }));
+  return (globalThis.__codernationSql ??= connect(url));
 }
 
 /** Tests only: drops the pool so the next sql() call connects to whatever DATABASE_URL is now. */
 export async function closeDatabase(): Promise<void> {
   const pool = globalThis.__codernationSql;
   globalThis.__codernationSql = undefined;
-  await pool?.end({ timeout: 5 });
+  await pool?.end();
 }

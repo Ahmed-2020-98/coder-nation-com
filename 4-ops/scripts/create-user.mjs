@@ -1,7 +1,8 @@
 // npm run user:create -- --email you@example.com --name "Ahmed" --role owner [--reset]
 // The password is asked twice with the keystrokes hidden, so it never appears on screen, in shell history or logs.
 // --reset sets a new password for an existing user and signs them out everywhere.
-import postgres from "postgres";
+import { randomUUID } from "node:crypto";
+import { connect } from "../src/server/sql.ts";
 import { hashPassword, passwordProblem } from "../src/server/password.ts";
 import { loadEnv } from "./lib/env.mjs";
 
@@ -58,7 +59,7 @@ function askHidden(prompt) {
   });
 }
 
-const sql = postgres(process.env.DATABASE_URL, { max: 1, onnotice: () => {} });
+const sql = connect(process.env.DATABASE_URL, { connectionLimit: 1 });
 try {
   const [existing] = await sql`select id from users where email = ${email}`;
   if (existing && !reset) fail(`${email} already exists. Use --reset to change the password.`);
@@ -77,12 +78,12 @@ try {
     });
     console.log(`Password updated for ${email}; all sessions were signed out.`);
   } else {
-    await sql`insert into users (email, name, role, password_hash) values (${email}, ${name}, ${role}, ${hash})`;
+    await sql`insert into users (id, email, name, role, password_hash) values (${randomUUID()}, ${email}, ${name}, ${role}, ${hash})`;
     console.log(`${role} created: ${email}. Sign in at /login`);
   }
 } catch (error) {
   console.error("Failed:", error instanceof Error ? error.message : error);
   process.exitCode = 1;
 } finally {
-  await sql.end({ timeout: 5 });
+  await sql.end();
 }

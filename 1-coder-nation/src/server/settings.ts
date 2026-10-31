@@ -1,6 +1,5 @@
 import "server-only";
 import { cacheLife, cacheTag } from "next/cache";
-import type postgres from "postgres";
 import { z } from "zod";
 import { content } from "@/content";
 import { ecosystem } from "@/config/ecosystem";
@@ -8,6 +7,7 @@ import { site } from "@/config/site";
 import { EMAIL_RE } from "@/lib/lead-rules";
 import { SOCIAL_KEYS, type SiteSettings, type SocialKey } from "@/lib/settings-shape";
 import { sql } from "./db";
+import { fromJson } from "./sql";
 
 export const SETTINGS_TAG = "settings";
 const KEY = "site";
@@ -75,8 +75,8 @@ export function mergeSettings(stored: unknown): SiteSettings {
 
 /** Straight from the database (admin screens). Throws if the database is unavailable. */
 export async function readSettings(): Promise<SiteSettings> {
-  const [stored] = await sql()<{ value: unknown }[]>`select value from settings where key = ${KEY}`;
-  return mergeSettings(stored?.value);
+  const [stored] = await sql()<{ value: unknown }[]>`select value from settings where name = ${KEY}`;
+  return mergeSettings(fromJson(stored?.value));
 }
 
 /**
@@ -97,10 +97,10 @@ export async function getSiteSettings(): Promise<SiteSettings> {
 
 export async function writeSettings(settings: SiteSettings): Promise<void> {
   const db = sql();
-  // db.json(): a plain string cast with ::jsonb would be stored as a JSON *string* (double-encoded) and read back as text.
+  // db.json(): the document is sent as JSON text, never as a plain string value.
   await db`
-    insert into settings (key, value, updated_at) values (${KEY}, ${db.json(settings as unknown as postgres.JSONValue)}, now())
-    on conflict (key) do update set value = excluded.value, updated_at = now()`;
+    insert into settings (name, value, updated_at) values (${KEY}, ${db.json(settings)}, now(3))
+    on duplicate key update value = values(value), updated_at = now(3)`;
 }
 
 export const isPlaceholderWhatsapp = (number: string): boolean => number === site.whatsappNumber;

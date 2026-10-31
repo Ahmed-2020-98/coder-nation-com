@@ -1,5 +1,5 @@
 import "server-only";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { Role } from "@/lib/crm-rules";
 import { sql } from "./db";
 import { dummyHash, hashPassword, passwordProblem, verifyPassword } from "./password";
@@ -52,9 +52,9 @@ export async function signIn(
   await resetLimit(perAccount);
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
-  await db`insert into sessions (user_id, token_hash, expires_at, user_agent) values (${user.id}, ${sha256(token)}, ${expiresAt}, ${context.userAgent})`;
-  await db`update users set last_login_at = now() where id = ${user.id}`;
-  await db`delete from sessions where expires_at < now()`;
+  await db`insert into sessions (id, user_id, token_hash, expires_at, user_agent) values (${randomUUID()}, ${user.id}, ${sha256(token)}, ${expiresAt}, ${context.userAgent})`;
+  await db`update users set last_login_at = now(3) where id = ${user.id}`;
+  await db`delete from sessions where expires_at < now(3)`;
   return { ok: true, token, expiresAt, mustChangePassword: user.must_change_password };
 }
 
@@ -63,7 +63,7 @@ export async function userFromToken(token: string): Promise<SessionUser | null> 
   const [row] = await sql()<{ id: string; email: string; name: string; role: Role; must_change_password: boolean }[]>`
     select u.id, u.email, u.name, u.role, u.must_change_password
     from sessions s join users u on u.id = s.user_id
-    where s.token_hash = ${sha256(token)} and s.expires_at > now() and u.active`;
+    where s.token_hash = ${sha256(token)} and s.expires_at > now(3) and u.active`;
   return row ? { id: row.id, email: row.email, name: row.name, role: row.role, mustChangePassword: row.must_change_password } : null;
 }
 
