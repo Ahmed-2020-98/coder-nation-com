@@ -7,7 +7,11 @@ import { cn } from "@/lib/cn";
 import { Logo } from "@/components/Logo";
 import { Button } from "@/components/ui/Button";
 
-export function Navbar({ nav }: { nav: SiteContent["nav"] }) {
+/**
+ * `home` is where the logo leads ("#top" on the home page, "/" elsewhere). On an inner page the links already point
+ * back to the home page ("/#services"), so the scroll-spy has nothing to watch and `current` marks the page's own link.
+ */
+export function Navbar({ nav, home = "#top", current }: { nav: SiteContent["nav"]; home?: string; current?: string }) {
   const { a11y } = content;
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
@@ -58,19 +62,19 @@ export function Navbar({ nav }: { nav: SiteContent["nav"] }) {
       )}
     >
       <div className="mx-auto flex h-(--header-h) w-full max-w-page items-center justify-between gap-6 px-(--gutter)">
-        <a href="#top" aria-label={a11y.home} className="rounded-lg">
+        <a href={home} aria-label={a11y.home} className="rounded-lg">
           <Logo />
         </a>
 
         <nav aria-label={a11y.mainNav} className="hidden lg:block">
           <ul className="flex items-center gap-1">
             {nav.links.map((link) => {
-              const isActive = active === link.href.slice(1);
+              const isActive = current ? link.href === current : link.href.startsWith("#") && active === link.href.slice(1);
               return (
                 <li key={link.href}>
                   <a
                     href={link.href}
-                    aria-current={isActive ? "location" : undefined}
+                    aria-current={isActive ? (current ? "page" : "location") : undefined}
                     className={cn(
                       "relative inline-flex min-h-11 items-center rounded-lg px-3.5 text-[0.95rem] font-medium transition-colors duration-(--duration-fast)",
                       "after:absolute after:inset-x-3.5 after:bottom-1.5 after:h-0.5 after:origin-left after:scale-x-0 after:rounded-full after:bg-primary-500 after:transition-transform after:duration-(--duration-base) rtl:after:origin-right",

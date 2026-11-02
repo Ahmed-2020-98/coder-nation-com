@@ -14,6 +14,37 @@
 export type CodeKind = "kw" | "str" | "fn" | "id" | "punc" | "cmt";
 export type CodeToken = readonly [CodeKind, string];
 
+/** One project of "أعمالنا": its card on the home page and its own page at /work/<slug>. */
+export type WorkItem = {
+  art: "browser" | "phone" | "dashboard";
+  category: string;
+  title: string;
+  /** The page's address (/work/<slug>). Empty = made from the title. */
+  slug: string;
+  text: string;
+  client: string;
+  year: string;
+  duration: string;
+  challenge: string;
+  solution: string;
+  results: string[];
+  tags: string[];
+  link: string;
+  image: string;
+  gallery: { image: string; caption: string }[];
+  sample: boolean;
+};
+
+// Placeholder case-study text for the sample projects: neutral wording, no numbers and no claims.
+const SAMPLE_CHALLENGE = "نص مؤقت: هنا نصف المشكلة التي أراد العميل حلّها، ومن هم المستخدمون، وما الذي كان يعيق النمو قبل المشروع.";
+const SAMPLE_SOLUTION = [
+  "نص مؤقت: هنا نصف ما أنجزناه خطوة بخطوة.",
+  "- تحليل الاحتياج وتحديد نطاق العمل.",
+  "- تصميم الواجهات واعتمادها مع العميل.",
+  "- البرمجة والاختبار ثم الإطلاق.",
+].join("\n");
+const SAMPLE_RESULTS = ["نتيجة مؤقتة: أثر المشروع على العميل", "نتيجة مؤقتة: ما الذي تغيّر بعد الإطلاق"];
+
 export const ar = {
   meta: {
     lang: "ar",
@@ -205,14 +236,153 @@ export const ar = {
     description: "نماذج من أنواع المشاريع التي نبنيها. المحتوى الحالي مؤقت وسيُستبدل بأعمالنا الفعلية.",
     placeholderBadge: "نموذج مؤقت",
     visitLabel: "زيارة المشروع",
+    caseLabel: "تفاصيل المشروع",
+    allLabel: "كل الأعمال",
     items: [
-      { art: "browser", category: "موقع شركة", title: "مشروع تجريبي ١", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Tailwind"], link: "", image: "", sample: true },
-      { art: "phone", category: "تطبيق موبايل", title: "مشروع تجريبي ٢", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Flutter", "Firebase"], link: "", image: "", sample: true },
-      { art: "dashboard", category: "لوحة تحكم", title: "مشروع تجريبي ٣", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["React", "Charts"], link: "", image: "", sample: true },
-      { art: "browser", category: "متجر إلكتروني", title: "مشروع تجريبي ٤", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Next.js", "Payments"], link: "", image: "", sample: true },
-      { art: "phone", category: "تصميم UI/UX", title: "مشروع تجريبي ٥", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["Figma", "Prototype"], link: "", image: "", sample: true },
-      { art: "dashboard", category: "منصة خدمات", title: "مشروع تجريبي ٦", text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).", tags: ["TypeScript", "API"], link: "", image: "", sample: true },
-    ] as { art: "browser" | "phone" | "dashboard"; category: string; title: string; text: string; tags: string[]; link: string; image: string; sample: boolean }[],
+      {
+        art: "browser",
+        category: "موقع شركة",
+        title: "مشروع تجريبي ١",
+        slug: "sample-company-site",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["Next.js", "Tailwind"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+      {
+        art: "phone",
+        category: "تطبيق موبايل",
+        title: "مشروع تجريبي ٢",
+        slug: "sample-mobile-app",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["Flutter", "Firebase"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+      {
+        art: "dashboard",
+        category: "لوحة تحكم",
+        title: "مشروع تجريبي ٣",
+        slug: "sample-dashboard",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["React", "Charts"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+      {
+        art: "browser",
+        category: "متجر إلكتروني",
+        title: "مشروع تجريبي ٤",
+        slug: "sample-online-store",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["Next.js", "Payments"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+      {
+        art: "phone",
+        category: "تصميم UI/UX",
+        title: "مشروع تجريبي ٥",
+        slug: "sample-ux-design",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["Figma", "Prototype"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+      {
+        art: "dashboard",
+        category: "منصة خدمات",
+        title: "مشروع تجريبي ٦",
+        slug: "sample-services-platform",
+        text: "وصف مختصر للمشروع وما أنجزناه فيه (نص مؤقت).",
+        client: "",
+        year: "",
+        duration: "",
+        challenge: SAMPLE_CHALLENGE,
+        solution: SAMPLE_SOLUTION,
+        results: [...SAMPLE_RESULTS],
+        tags: ["TypeScript", "API"],
+        link: "",
+        image: "",
+        gallery: [],
+        sample: true,
+      },
+    ] as WorkItem[],
+  },
+
+  // Shown for any address on the public site that does not exist (and for a project that was removed).
+  notFound: {
+    title: "الصفحة غير موجودة",
+    text: "ربما تغيّر رابط الصفحة أو حُذفت. يمكنك العودة للصفحة الرئيسية أو تصفّح أعمالنا.",
+    home: "الصفحة الرئيسية",
+    work: "أعمالنا",
+  },
+
+  // The /work pages (one per project). Fixed interface text, not edited from the admin panel.
+  workPage: {
+    breadcrumb: "مسار الصفحة",
+    home: "الرئيسية",
+    caseStudy: "case study",
+    spec: "ملف المشروع",
+    specFile: "project.json",
+    client: "العميل",
+    year: "السنة",
+    duration: "مدة التنفيذ",
+    category: "النوع",
+    stack: "التقنيات",
+    challenge: "التحدي",
+    solution: "الحل",
+    results: "أبرز النتائج",
+    gallery: "من داخل المشروع",
+    prev: "المشروع السابق",
+    next: "المشروع التالي",
+    others: "مشاريع أخرى",
+    ctaTitle: "عندك فكرة مشروع؟",
+    ctaText: "حدّثنا عنها، وسنعود إليك بخطة واضحة وعرض مناسب لميزانيتك.",
+    ctaButton: "اطلب مشروعك",
+    ctaHref: "/#contact",
+    // How many projects: 1 / 2 / 3-10 / 11+ take different forms in Arabic.
+    count: { one: "مشروع واحد", two: "مشروعان", few: "{n} مشاريع", many: "{n} مشروعًا" },
   },
 
   testimonials: {

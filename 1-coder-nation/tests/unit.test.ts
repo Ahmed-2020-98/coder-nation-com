@@ -180,3 +180,44 @@ describe("forwarding leads to the internal CRM", () => {
     delete process.env.OPS_INTAKE_SECRET;
   });
 });
+
+describe("project pages: addresses, neighbours and the menu on inner pages", async () => {
+  const { findWork, isPublishable, slugify, withSlugs } = await import("@/lib/work");
+  const { linkFromInnerPage } = await import("@/lib/site-chrome");
+  const { ar } = await import("@/content/ar");
+  const item = (over: Partial<(typeof ar.work.items)[number]>) => ({ ...ar.work.items[0], slug: "", sample: false, ...over });
+
+  it("makes a readable address from an Arabic or English title when the slug is empty", () => {
+    expect(slugify("متجر النور 2")).toBe("متجر-النور-2");
+    expect(slugify("  مَتْجَر   النور!! ")).toBe("متجر-النور");
+    expect(slugify("Nour Store — v2")).toBe("nour-store-v2");
+    expect(slugify("!!!")).toBe("");
+  });
+
+  it("never gives two projects the same address", () => {
+    const all = withSlugs([item({ title: "متجر" }), item({ title: "متجر" }), item({ title: "x", slug: "shop" }), item({ title: "!!!" })]);
+    expect(all.map((w) => w.slugValue)).toEqual(["متجر", "متجر-2", "shop", "project-4"]);
+    expect(all[0].href).toBe(`/work/${encodeURIComponent("متجر")}`);
+  });
+
+  it("finds a project by its (possibly percent-encoded) address, with the projects before and after it", () => {
+    const items = [item({ slug: "a" }), item({ slug: "b", title: "متجر النور" }), item({ slug: "c" })];
+    expect(findWork(items, "b")).toMatchObject({ index: 1, item: { slugValue: "b" }, prev: { slugValue: "a" }, next: { slugValue: "c" } });
+    expect(findWork(items, "a")).toMatchObject({ prev: null, next: { slugValue: "b" } });
+    expect(findWork([item({ title: "متجر النور" })], encodeURIComponent("متجر-النور"))?.index).toBe(0);
+    expect(findWork(items, "nope")).toBeNull();
+    expect(findWork(items, "%E0%A4%A")).toBeNull(); // malformed encoding
+  });
+
+  it("only real projects are published to search engines", () => {
+    expect(isPublishable(item({ sample: false }))).toBe(true);
+    expect(isPublishable(item({ sample: true }))).toBe(false);
+  });
+
+  it("menu links on an inner page lead back to the home page's sections, and «أعمالنا» to the full list", () => {
+    expect(linkFromInnerPage("#services")).toBe("/#services");
+    expect(linkFromInnerPage("#work")).toBe("/work");
+    expect(linkFromInnerPage("https://wa.me/1")).toBe("https://wa.me/1");
+    expect(linkFromInnerPage("/privacy")).toBe("/privacy");
+  });
+});

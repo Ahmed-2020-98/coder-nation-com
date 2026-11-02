@@ -24,7 +24,7 @@ const REQUIRED = "الحقل ده مطلوب";
 const tooLong = (max: number) => `الحد الأقصى ${max} حرف`;
 const tooShort = (min: number) => `${min} أحرف على الأقل`;
 
-function textSchema(max: number, min: number, multiline: boolean) {
+function textSchema(max: number, min: number, multiline: boolean, pattern?: { re: RegExp; message: string }) {
   // Line endings are normalised and the ends trimmed BEFORE the length checks, so "  " counts as empty.
   const body = z.string(REQUIRED).transform((value) => value.replace(/\r\n?/g, "\n").trim());
   let checked = z.string().max(max, tooLong(max));
@@ -32,6 +32,7 @@ function textSchema(max: number, min: number, multiline: boolean) {
   if (min >= 1) checked = checked.min(1, REQUIRED);
   if (min > 1) checked = checked.min(min, tooShort(min));
   if (!multiline) checked = checked.regex(/^[^\n]*$/, "من غير سطور جديدة");
+  if (pattern) checked = checked.regex(pattern.re, pattern.message);
   return body.pipe(checked);
 }
 
@@ -39,7 +40,7 @@ function fieldSchema(spec: FieldSpec): z.ZodType {
   switch (spec.kind) {
     case "text":
     case "area":
-      return textSchema(spec.max, spec.optional ? 0 : (spec.min ?? 1), spec.kind === "area");
+      return textSchema(spec.max, spec.optional ? 0 : (spec.min ?? 1), spec.kind === "area", spec.kind === "text" ? spec.pattern : undefined);
     case "href":
       return z
         .string(REQUIRED)
@@ -135,9 +136,13 @@ export function deepDefaults(defaults: unknown, stored: unknown): unknown {
   return stored === undefined ? defaults : stored;
 }
 
-/** A stored section that is valid now, or null. A broken one (hand-edited table, a field removed later) is ignored whole. */
+/**
+ * A stored section that is valid now, or null. A broken one (hand-edited table) is ignored whole. A field added to the
+ * spec after the section was saved is filled with its empty value first (lists are stored whole, so their items would
+ * otherwise lack it), so adding an optional field never throws away what the admin saved.
+ */
 export function parseStoredSection(id: SectionId, stored: unknown): Plain | null {
-  const parsed = sectionSchema(id).safeParse(deepDefaults(defaultsFor(id), stored));
+  const parsed = sectionSchema(id).safeParse(pickFields(SECTION_SPECS[id].fields, deepDefaults(defaultsFor(id), stored)));
   return parsed.success ? (parsed.data as Plain) : null;
 }
 

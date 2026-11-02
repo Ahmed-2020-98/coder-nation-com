@@ -426,3 +426,38 @@ describe("uploaded images", () => {
     expect(stray).not.toBe(first);
   });
 });
+
+describe("project pages (أعمالنا)", () => {
+  it("keeps a work section saved before the case-study fields existed, filling them with empty values", () => {
+    const saved = clone(defaultsFor("work")) as { items: Plain[] } & Plain;
+    // What an older save looks like: items without slug, client, challenge, gallery...
+    saved.items = saved.items.map(({ title, category, text, tags, image, art, link, sample }) => ({ title, category, text, tags, image, art, link, sample }));
+    saved.items[0].title = "متجر النور";
+    const parsed = parseStoredSection("work", saved) as { items: Plain[] } | null;
+    expect(parsed).not.toBeNull();
+    expect(parsed!.items[0]).toMatchObject({ title: "متجر النور", slug: "", client: "", challenge: "", results: [], gallery: [] });
+    expect(computeView({ sections: { work: saved }, hidden: [] }).content.work.items[0].title).toBe("متجر النور");
+  });
+
+  it("accepts an empty slug or one made of lowercase latin letters, digits and dashes only", () => {
+    const withSlug = (slug: string) => {
+      const value = clone(defaultsFor("work")) as { items: Plain[] } & Plain;
+      value.items[0].slug = slug;
+      return sectionSchema("work").safeParse(value);
+    };
+    for (const ok of ["", "nour-store", "app2", "a-b-c"]) expect(withSlug(ok).success, ok).toBe(true);
+    for (const bad of ["Nour", "nour store", "-nour", "nour-", "nour--store", "متجر", "a/b"]) {
+      const result = withSlug(bad);
+      expect(result.success, bad).toBe(false);
+      if (!result.success) expect(fieldErrors(result.error)["items.0.slug"]).toContain("حروف إنجليزي");
+    }
+  });
+
+  it("ships six sample projects, each with its own slug and the case-study fields", () => {
+    const items = ar.work.items;
+    expect(items).toHaveLength(6);
+    expect(new Set(items.map((item) => item.slug)).size).toBe(6);
+    for (const item of items) expect(item).toMatchObject({ sample: true, gallery: [], results: expect.any(Array) });
+    expect(sectionSchema("work").safeParse(defaultsFor("work")).success).toBe(true);
+  });
+});

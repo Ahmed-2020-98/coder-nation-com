@@ -9,7 +9,8 @@ import { Faq } from "@/components/sections/Faq";
 import { Contact } from "@/components/sections/Contact";
 import { Footer } from "@/components/sections/Footer";
 import { OrganizationJsonLd } from "@/components/OrganizationJsonLd";
-import { isLinkHidden, visibleLinks } from "@/lib/content-model";
+import { isLinkHidden } from "@/lib/content-model";
+import { siteChrome } from "@/lib/site-chrome";
 import type { SectionId } from "@/lib/content-spec";
 import { getSiteView } from "@/server/content";
 
@@ -19,19 +20,16 @@ import { getSiteView } from "@/server/content";
  * menu / footer / button link that pointed at it, and the "// 01" numbers close up around it.
  */
 export default async function Home() {
-  const { content, hidden, indexes } = await getSiteView();
+  const view = await getSiteView();
+  const { content, hidden, indexes } = view;
   const shown = (id: SectionId) => !hidden.includes(id);
   const at = (id: SectionId) => indexes[id] ?? "";
-
-  const footer = {
-    ...content.footer,
-    columns: content.footer.columns.map((column) => ({ ...column, links: visibleLinks(column.links, hidden) })),
-  };
+  const { nav, footer } = siteChrome(view);
 
   return (
     <>
       <OrganizationJsonLd />
-      <Navbar nav={{ ...content.nav, links: visibleLinks(content.nav.links, hidden) }} />
+      <Navbar nav={nav} />
       <main id="main">
         <Hero hero={content.hero} showSecondary={!isLinkHidden(content.hero.secondaryCta.href, hidden)} />
         {shown("services") ? <Services data={content.services} index={at("services")} /> : null}

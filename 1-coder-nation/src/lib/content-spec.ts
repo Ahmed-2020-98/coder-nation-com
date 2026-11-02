@@ -33,7 +33,7 @@ export const SECTION_ANCHOR: Record<SectionId, string> = {
 type Common = { label: string; hint?: string };
 
 export type FieldSpec =
-  | ({ kind: "text"; max: number; min?: number; ltr?: boolean; optional?: boolean } & Common)
+  | ({ kind: "text"; max: number; min?: number; ltr?: boolean; optional?: boolean; pattern?: { re: RegExp; message: string } } & Common)
   | ({ kind: "area"; max: number; min?: number; rows?: number; optional?: boolean } & Common)
   | ({ kind: "href"; optional?: boolean; httpsOnly?: boolean } & Common)
   | ({ kind: "select"; options: readonly { value: string; label: string }[] } & Common)
@@ -85,7 +85,7 @@ const ART_OPTIONS = [
 export const IMAGE_ACCEPT = ["image/jpeg", "image/png", "image/webp"] as const;
 export const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
 
-const text = (label: string, max: number, extra: { min?: number; hint?: string; ltr?: boolean; optional?: boolean } = {}): FieldSpec => ({ kind: "text", label, max, ...extra });
+const text = (label: string, max: number, extra: { min?: number; hint?: string; ltr?: boolean; optional?: boolean; pattern?: { re: RegExp; message: string } } = {}): FieldSpec => ({ kind: "text", label, max, ...extra });
 const area = (label: string, max: number, extra: { min?: number; hint?: string; rows?: number; optional?: boolean } = {}): FieldSpec => ({ kind: "area", label, max, ...extra });
 const href = (label: string, extra: { hint?: string; optional?: boolean; httpsOnly?: boolean } = {}): FieldSpec => ({ kind: "href", label, ...extra });
 const link = (label: string): FieldSpec => ({ kind: "group", label, fields: { label: text("النص", 40), href: href("الرابط", { hint: "#contact للنزول لقسم، أو https://… لموقع، أو tel:/mailto:" }) } });
@@ -238,12 +238,14 @@ export const SECTION_SPECS: Record<SectionId, SectionSpec> = {
   work: {
     id: "work",
     title: "أعمالنا",
-    description: "مشاريعك اللي بتفتخر بيها. ارفع صورة لكل مشروع، ولو مفيش بيظهر رسم تجريبي.",
+    description: "مشاريعك اللي بتفتخر بيها. كل مشروع ليه صفحة لوحده على /work/… فيها التحدي والحل والنتائج ومعرض الصور. ارفع صورة لكل مشروع، ولو مفيش بيظهر رسم تجريبي.",
     anchor: "work",
     fields: {
       ...header(),
       placeholderBadge: text("نص شارة «نموذج»", 30, { hint: "بتظهر على أي مشروع علّمته «نموذج مؤقت»" }),
       visitLabel: text("نص رابط المشروع", 30, { hint: "بيظهر لو المشروع ليه رابط، مثلًا: زيارة المشروع" }),
+      caseLabel: text("نص رابط صفحة المشروع", 30, { hint: "على كل كارت، مثلًا: تفاصيل المشروع" }),
+      allLabel: text("نص زرار كل الأعمال", 30, { hint: "تحت الأعمال في الصفحة الرئيسية" }),
       items: {
         kind: "list",
         label: "المشاريع",
@@ -253,15 +255,57 @@ export const SECTION_SPECS: Record<SectionId, SectionSpec> = {
         max: 12,
         fields: {
           title: text("اسم المشروع", 80, { min: 2 }),
+          slug: text("رابط الصفحة", 60, {
+            optional: true,
+            ltr: true,
+            pattern: { re: /^([a-z0-9]+(-[a-z0-9]+)*)?$/, message: "حروف إنجليزي صغيرة وأرقام وشرطة (-) بس، مثلًا: nour-store" },
+            hint: "بيظهر في الرابط: /work/… . لو سبته فاضي بيتعمل من اسم المشروع",
+          }),
           category: text("النوع", 40, { min: 2, hint: "مثلًا: متجر إلكتروني" }),
-          text: area("الوصف", 250, { min: 5, rows: 2 }),
+          text: area("الوصف المختصر", 250, { min: 5, rows: 2, hint: "بيظهر على الكارت وفي أول صفحة المشروع" }),
+          client: text("العميل", 80, { optional: true }),
+          year: text("السنة", 10, { optional: true, ltr: true }),
+          duration: text("مدة التنفيذ", 40, { optional: true, hint: "مثلًا: 6 أسابيع" }),
+          challenge: area("التحدي", 1500, { optional: true, rows: 4, hint: "إيه المشكلة اللي العميل كان عايز يحلها. السطر اللي بيبدأ بـ - بيظهر كنقطة" }),
+          solution: area("الحل", 1500, { optional: true, rows: 4, hint: "عملنا إيه بالظبط. السطر اللي بيبدأ بـ - بيظهر كنقطة" }),
+          results: { kind: "strings", label: "أبرز النتائج", itemLabel: "نتيجة", min: 0, max: 6, itemMax: 120 },
           tags: { kind: "strings", label: "التقنيات", itemLabel: "تقنية", min: 0, max: 6, itemMax: 24, ltr: true },
           image: { kind: "image", label: "صورة المشروع", hint: "JPG أو PNG أو WebP، حتى 2 ميجا. بتتصغّر تلقائيًا قبل الرفع." },
           art: { kind: "select", label: "الرسم التجريبي (لو مفيش صورة)", options: ART_OPTIONS },
           link: href("رابط المشروع (اختياري)", { optional: true, httpsOnly: true, hint: "لازم يبدأ بـ https://" }),
-          sample: { kind: "bool", label: "نموذج مؤقت (تظهر عليه شارة)", hint: "شيّلها لما تحط مشروع حقيقي" },
+          gallery: {
+            kind: "list",
+            label: "معرض الصور",
+            itemLabel: "صورة",
+            titleKey: "caption",
+            min: 0,
+            max: 8,
+            fields: {
+              image: { kind: "image", label: "الصورة", hint: "JPG أو PNG أو WebP، حتى 2 ميجا." },
+              caption: text("وصف الصورة", 120, { optional: true }),
+            },
+            blank: () => ({ image: "", caption: "" }),
+          },
+          sample: { kind: "bool", label: "نموذج مؤقت (تظهر عليه شارة)", hint: "شيّلها لما تحط مشروع حقيقي. صفحة النموذج مش بتظهر في جوجل" },
         },
-        blank: () => ({ title: "مشروع جديد", category: "نوع المشروع", text: "وصف مختصر للمشروع وما أنجزناه فيه.", tags: [], image: "", art: "browser", link: "", sample: false }),
+        blank: () => ({
+          title: "مشروع جديد",
+          slug: "",
+          category: "نوع المشروع",
+          text: "وصف مختصر للمشروع وما أنجزناه فيه.",
+          client: "",
+          year: "",
+          duration: "",
+          challenge: "",
+          solution: "",
+          results: [],
+          tags: [],
+          image: "",
+          art: "browser",
+          link: "",
+          gallery: [],
+          sample: false,
+        }),
       },
     },
   },

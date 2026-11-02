@@ -1,193 +1,149 @@
-import { ExternalLink } from "lucide-react";
-import { content, type SiteContent } from "@/content";
+import { ArrowLeft } from "lucide-react";
+import type { SiteContent } from "@/content";
 import { cn } from "@/lib/cn";
+import { withSlugs, type SluggedWork } from "@/lib/work";
 import { Reveal } from "@/components/Reveal";
+import { WorkCover } from "@/components/WorkArt";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { Section, SectionHeader } from "@/components/ui/Section";
 
-type ArtKind = "browser" | "phone" | "dashboard";
+/** How many projects the home page shows; the rest are on /work. */
+const ON_HOME = 6;
 
-// One gradient per card so the grid has rhythm; all come from the colour scales.
-const gradients = [
-  "from-secondary-600 to-secondary-800",
-  "from-primary-500 to-primary-700",
-  "from-secondary-500 to-secondary-700",
-  "from-primary-600 to-secondary-800",
-  "from-secondary-700 to-secondary-900",
-  "from-primary-400 to-primary-600",
-];
+type Labels = Pick<SiteContent["work"], "placeholderBadge" | "caseLabel">;
 
-function BrowserArt() {
+/** The sample badge sits on the cover, so it reads the same on a picture and on a drawing. */
+function SampleBadge({ label }: { label: string }) {
   return (
-    <div className="absolute inset-x-[9%] top-[13%] bottom-0 overflow-hidden rounded-t-xl bg-white shadow-lift">
-      <div className="flex items-center gap-1 border-b border-secondary-100 px-3 py-2">
-        {[0, 1, 2].map((n) => (
-          <span key={n} className="size-1.5 rounded-full bg-secondary-200" />
-        ))}
-        <span className="ms-2 h-2 w-1/3 rounded bg-secondary-100" />
-      </div>
-      <div className="grid gap-2.5 p-3.5">
-        <div className="flex items-center justify-between">
-          <span className="h-2 w-1/4 rounded bg-secondary-900" />
-          <span className="h-2 w-1/5 rounded bg-secondary-200" />
-        </div>
-        <div className="h-[4.25rem] rounded-lg bg-secondary-900 p-3">
-          <span className="block h-2 w-2/3 rounded bg-white" />
-          <span className="mt-2 block h-1.5 w-1/2 rounded bg-secondary-300" />
-          <span className="mt-3 block h-3 w-14 rounded bg-primary-500" />
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          {[0, 1, 2].map((n) => (
-            <div key={n} className="h-11 rounded-md bg-secondary-100" />
-          ))}
-        </div>
-      </div>
-    </div>
+    <span className="absolute start-3 top-3 z-10 rounded-full border border-white/25 bg-black/30 px-3 py-0.5 text-xs leading-6 font-medium text-white backdrop-blur">
+      {label}
+    </span>
   );
 }
 
-function PhoneScreen({ dark = false }: { dark?: boolean }) {
+function CaseLink({ label }: { label: string }) {
   return (
-    <div className={cn("h-full rounded-[0.9rem] p-2", dark ? "bg-secondary-900" : "bg-secondary-50")}>
-      <span className={cn("mx-auto mb-2 block h-1 w-6 rounded-full", dark ? "bg-secondary-700" : "bg-secondary-200")} />
-      <span className="block h-9 rounded-md bg-primary-500" />
-      <div className="mt-2 grid gap-1.5">
-        {[0, 1, 2].map((n) => (
-          <span key={n} className={cn("h-3 rounded", dark ? "bg-secondary-700" : "bg-secondary-200")} />
-        ))}
-      </div>
-    </div>
+    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-accent">
+      {label}
+      <ArrowLeft aria-hidden="true" className="size-4 transition-transform duration-(--duration-base) ease-(--ease-out-expo) group-hover/card:-translate-x-1 ltr:rotate-180 ltr:group-hover/card:translate-x-1" />
+    </span>
   );
 }
 
-function PhoneArt() {
+function Tags({ tags }: { tags: string[] }) {
+  if (tags.length === 0) return null;
   return (
-    <>
-      <div className="absolute start-[17%] top-[14%] aspect-[9/18] w-[30%] rounded-[1.1rem] bg-white p-1 shadow-lift">
-        <PhoneScreen />
-      </div>
-      <div className="absolute end-[17%] top-[26%] aspect-[9/18] w-[30%] rounded-[1.1rem] bg-secondary-950 p-1 shadow-lift">
-        <PhoneScreen dark />
-      </div>
-    </>
+    <ul className="flex flex-wrap gap-2" dir="ltr">
+      {tags.map((tag) => (
+        <li key={tag}>
+          <Badge mono>{tag}</Badge>
+        </li>
+      ))}
+    </ul>
   );
 }
 
-const bars = [40, 65, 50, 82, 60, 92, 72];
+const cardFrame =
+  "group/card flex h-full overflow-hidden rounded-xl border border-line bg-surface outline-offset-4 transition-[transform,border-color,box-shadow] duration-(--duration-base) ease-(--ease-out-expo) hover:-translate-y-1 hover:border-accent hover:shadow-glow focus-visible:border-accent";
 
-function DashboardArt() {
+/** A project card: the whole card is one link to the project's page. */
+export function WorkCard({ item, index, labels, wide = false }: { item: SluggedWork; index: number; labels: Labels; wide?: boolean }) {
   return (
-    <div className="absolute inset-x-[9%] top-[14%] bottom-0 flex overflow-hidden rounded-t-xl bg-white shadow-lift">
-      <div className="grid w-[18%] content-start gap-2 bg-secondary-900 p-2.5">
-        <span className="h-2 rounded bg-primary-500" />
-        {[0, 1, 2, 3].map((n) => (
-          <span key={n} className="h-1.5 rounded bg-secondary-600" />
-        ))}
+    <a href={item.href} className={cn(cardFrame, "flex-col")}>
+      <div className={cn("relative aspect-[4/3]", wide && "lg:aspect-[16/8]")}>
+        {item.sample ? <SampleBadge label={labels.placeholderBadge} /> : null}
+        <WorkCover art={item.art} image={item.image} title={item.title} index={index} />
       </div>
-      <div className="flex-1 p-3">
-        <div className="grid grid-cols-3 gap-2">
-          {[0, 1, 2].map((n) => (
-            <div key={n} className="h-9 rounded-md bg-secondary-100 p-1.5">
-              <span className="block h-1.5 w-1/2 rounded bg-secondary-300" />
-              <span className="mt-1.5 block h-2 w-3/4 rounded bg-secondary-900" />
-            </div>
-          ))}
-        </div>
-        <div className="mt-3 flex h-[4.25rem] items-end gap-1.5 rounded-md bg-secondary-50 p-2">
-          {bars.map((h, n) => (
-            <span
-              key={n}
-              style={{ height: `${h}%` }}
-              className={cn("flex-1 rounded-sm", n === 5 ? "bg-primary-500" : "bg-secondary-300")}
-            />
-          ))}
+      <div className="flex flex-1 flex-col p-6">
+        <Badge tone="accent" className="w-fit">
+          {item.category}
+        </Badge>
+        <h3 className="mt-3 text-lg font-bold">{item.title}</h3>
+        <p className="mt-1.5 text-[0.95rem] text-ink-muted">{item.text}</p>
+        <div className="mt-auto flex flex-wrap items-end justify-between gap-3 pt-5">
+          <Tags tags={item.tags} />
+          <CaseLink label={labels.caseLabel} />
         </div>
       </div>
-    </div>
+    </a>
   );
 }
 
-const arts: Record<ArtKind, () => React.JSX.Element> = {
-  browser: BrowserArt,
-  phone: PhoneArt,
-  dashboard: DashboardArt,
-};
+/** A project across the whole grid, its big cover beside its story: the first one, and a last one left alone in its row. */
+function FeaturedCard({ item, labels, index = 0 }: { item: SluggedWork; labels: Labels; index?: number }) {
+  return (
+    <a href={item.href} className={cn(cardFrame, "flex-col lg:flex-row")}>
+      <div className="relative aspect-[16/10] lg:aspect-auto lg:min-h-[24rem] lg:w-[58%]">
+        {item.sample ? <SampleBadge label={labels.placeholderBadge} /> : null}
+        <WorkCover art={item.art} image={item.image} title={item.title} index={index} />
+      </div>
+      <div className="flex flex-1 flex-col justify-center gap-4 p-7 lg:p-10">
+        <p className="flex flex-wrap items-center gap-3">
+          <Badge tone="accent">{item.category}</Badge>
+          {item.client || item.year ? (
+            <span className="text-sm text-ink-muted">
+              {[item.client, item.year].filter(Boolean).join(" · ")}
+            </span>
+          ) : null}
+        </p>
+        <h3 className="text-[clamp(1.4rem,2.4vw,1.9rem)] leading-snug font-bold">{item.title}</h3>
+        <p className="text-ink-muted">{item.text}</p>
+        <Tags tags={item.tags} />
+        <div className="pt-2">
+          <CaseLink label={labels.caseLabel} />
+        </div>
+      </div>
+    </a>
+  );
+}
 
 export function Work({ data: work, index }: { data: SiteContent["work"]; index: string }) {
+  const items = withSlugs(work.items);
+  const [featured, ...rest] = items.slice(0, ON_HOME);
+  const labels = { placeholderBadge: work.placeholderBadge, caseLabel: work.caseLabel };
 
   return (
     <Section id="work" tone="navy" labelledBy="work-title">
-      <SectionHeader
-        id="work-title"
-        index={index}
-        eyebrow={work.eyebrow}
-        title={work.title}
-        description={work.description}
-      />
+      <div className="flex flex-wrap items-end justify-between gap-6">
+        <SectionHeader id="work-title" index={index} eyebrow={work.eyebrow} title={work.title} description={work.description} />
+        <Button href="/work" variant="secondary" className="max-sm:hidden">
+          {work.allLabel}
+          <ArrowLeft aria-hidden="true" className="size-4 ltr:rotate-180" />
+        </Button>
+      </div>
 
-      <ul className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {work.items.map((item, i) => {
-          const Art = arts[item.art];
+      {/* Six columns on wide screens: three cards a row, and when two are left over they share the last row. */}
+      <ul className="mt-14 grid gap-6 sm:grid-cols-2 lg:grid-cols-6">
+        {featured ? (
+          <Reveal as="li" className="sm:col-span-2 lg:col-span-6">
+            <FeaturedCard item={featured} labels={labels} />
+          </Reveal>
+        ) : null}
+        {rest.map((item, i) => {
+          // A single project left over gets the full-width layout instead of one card beside an empty row.
+          if (rest.length % 3 === 1 && i === rest.length - 1) {
+            return (
+              <Reveal as="li" key={item.href} className="sm:col-span-2 lg:col-span-6">
+                <FeaturedCard item={item} labels={labels} index={i + 1} />
+              </Reveal>
+            );
+          }
+          const wide = rest.length % 3 === 2 && i >= rest.length - 2;
           return (
-            <Reveal as="li" key={`${i}-${item.title}`} delay={(i % 3) * 90}>
-              <article className="group/card flex h-full flex-col overflow-hidden rounded-xl border border-line bg-surface transition-[transform,border-color,box-shadow] duration-(--duration-base) ease-(--ease-out-expo) hover:-translate-y-1 hover:border-accent hover:shadow-glow">
-                <div className={cn("relative aspect-[4/3] overflow-hidden bg-gradient-to-br", gradients[i % gradients.length])}>
-                  {item.sample ? (
-                    <span className="absolute start-3 top-3 z-10 rounded-full border border-white/25 bg-black/30 px-3 py-0.5 text-xs leading-6 font-medium text-white backdrop-blur">
-                      {work.placeholderBadge}
-                    </span>
-                  ) : null}
-                  {item.image ? (
-                    // A plain <img>: the file is served by our own /media route from the database, which next/image's optimizer would only duplicate.
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={`/media/${item.image}`}
-                      alt={item.title}
-                      loading="lazy"
-                      decoding="async"
-                      className="absolute inset-0 size-full object-cover transition-transform duration-700 ease-(--ease-out-expo) group-hover/card:scale-[1.04]"
-                    />
-                  ) : (
-                    <div
-                      aria-hidden="true"
-                      className="absolute inset-0 transition-transform duration-700 ease-(--ease-out-expo) group-hover/card:scale-[1.04]"
-                    >
-                      <Art />
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex flex-1 flex-col p-6">
-                  <Badge tone="accent" className="w-fit">
-                    {item.category}
-                  </Badge>
-                  <h3 className="mt-3 text-lg font-bold">{item.title}</h3>
-                  <p className="mt-1.5 text-[0.95rem] text-ink-muted">{item.text}</p>
-                  {item.link ? (
-                    <a
-                      href={item.link}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-4 inline-flex min-h-9 w-fit items-center gap-1.5 text-sm font-semibold text-accent hover:underline"
-                    >
-                      {work.visitLabel}
-                      <ExternalLink aria-hidden="true" className="size-3.5 rtl:-scale-x-100" />
-                      <span className="sr-only">{content.a11y.newTab}</span>
-                    </a>
-                  ) : null}
-                  <ul className="mt-auto flex flex-wrap gap-2 pt-5" dir="ltr">
-                    {item.tags.map((tag) => (
-                      <li key={tag}>
-                        <Badge mono>{tag}</Badge>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </article>
+            <Reveal as="li" key={item.href} delay={(i % 3) * 90} className={wide ? "lg:col-span-3" : "lg:col-span-2"}>
+              <WorkCard item={item} index={i + 1} labels={labels} wide={wide} />
             </Reveal>
           );
         })}
       </ul>
+
+      <div className="mt-10 flex justify-center sm:hidden">
+        <Button href="/work" variant="secondary" size="lg" className="w-full">
+          {work.allLabel}
+          <ArrowLeft aria-hidden="true" className="size-4 ltr:rotate-180" />
+        </Button>
+      </div>
     </Section>
   );
 }
