@@ -131,6 +131,7 @@ describe("permissions", () => {
     "client_contract.manage": { owner: true, manager: true, employee: false },
     "invoice.issue": { owner: true, manager: true, employee: false },
     "invoice.void": { owner: true, manager: false, employee: false },
+    "mcp.manage": { owner: true, manager: false, employee: false },
   };
   it("matches the agreed table exactly, for every role and every permission", () => {
     expect(Object.keys(PERMISSIONS).sort()).toEqual(Object.keys(MATRIX).sort());

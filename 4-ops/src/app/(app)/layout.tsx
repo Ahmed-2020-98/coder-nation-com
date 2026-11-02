@@ -18,6 +18,7 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
     ...(can(user.role, "invoice.issue") ? [{ href: "/invoices", label: "الفواتير", icon: "invoices" } as NavItem] : []),
     ...(can(user.role, "company.edit") ? [{ href: "/settings/company", label: "بيانات الشركة", icon: "company" } as NavItem] : []),
     ...(can(user.role, "users.manage") ? [{ href: "/settings/users", label: "الفريق", icon: "team" } as NavItem] : []),
+    ...(can(user.role, "mcp.manage") ? [{ href: "/settings/mcp", label: "مفاتيح الـ MCP", icon: "keys" } as NavItem] : []),
     // The owner manages every contract; anyone else sees the entry only once a contract has been sent to them.
     ...(can(user.role, "contract.manage")
       ? [{ href: "/contracts", label: "العقود", icon: "contracts" } as NavItem]

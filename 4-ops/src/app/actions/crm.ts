@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { refresh } from "next/cache";
+import { refresh } from "@/server/refresh";
 import { z } from "zod";
 import { formText, type ActionState } from "@/lib/action-state";
 import { ACTIVITY_KINDS, CURRENCIES, EMAIL_RE, PHONE_RE, SERVICES, STAGES, normalizePhone, type Currency, type Stage } from "@/lib/crm-rules";

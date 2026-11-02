@@ -43,6 +43,8 @@ export const PERMISSIONS = {
   "client_contract.manage": ["owner", "manager"],
   "invoice.issue": ["owner", "manager"],
   "invoice.void": ["owner"],
+  // API keys for the MCP endpoint act as their owner: only the owner makes, sees and revokes them.
+  "mcp.manage": ["owner"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

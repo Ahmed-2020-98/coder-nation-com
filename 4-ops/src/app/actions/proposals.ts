@@ -1,7 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { refresh } from "next/cache";
+import { refresh } from "@/server/refresh";
 import type { ActionState } from "@/lib/action-state";
 import { formText } from "@/lib/action-state";
 import { createProposalForDeal, duplicateProposal, markSent, parseProposalInput, saveProposal, setOutcome } from "@/server/proposals";

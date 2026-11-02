@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import type { Role } from "@/lib/crm-rules";
 import { SESSION_COOKIE } from "@/lib/session-cookie";
+import { currentActor } from "./actor";
 import { userFromToken, type SessionUser } from "./auth-core";
 import { isProduction } from "./env";
 import { can, type Permission } from "./permissions";
@@ -12,6 +13,9 @@ export { SESSION_COOKIE };
 
 /** The signed-in user for this request, or null. A database failure counts as "not signed in", never as an error page. */
 export const getUser = cache(async (): Promise<SessionUser | null> => {
+  // An MCP call acting as an API key's owner (src/server/actor.ts) has no cookie: it is that person.
+  const actor = currentActor();
+  if (actor) return actor;
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
   try {

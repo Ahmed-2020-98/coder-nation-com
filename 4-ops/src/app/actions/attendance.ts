@@ -1,6 +1,6 @@
 "use server";
 
-import { refresh } from "next/cache";
+import { refresh } from "@/server/refresh";
 import { z } from "zod";
 import { formText, type ActionState } from "@/lib/action-state";
 import { isTime, LEAVE_KINDS, type LeaveKind } from "@/lib/attendance-rules";

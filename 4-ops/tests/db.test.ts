@@ -31,7 +31,7 @@ beforeAll(async () => {
   process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
   const { migrate } = await import("../db/migrate.mjs");
-  expect(await migrate(raw)).toEqual(["001_init.sql", "002_tasks.sql", "003_attendance.sql", "004_contracts.sql", "005_client_contracts.sql"]);
+  expect(await migrate(raw)).toEqual(["001_init.sql", "002_tasks.sql", "003_attendance.sql", "004_contracts.sql", "005_client_contracts.sql", "006_api_tokens.sql"]);
   expect(await migrate(raw)).toEqual([]);
   vi.resetModules();
   m.db = await import("@/server/db");

@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
-import { Building2, FileCheck2, FileSignature, FileText, Clock, FolderKanban, Handshake, LayoutDashboard, ListChecks, LogOut, Receipt, Users, UsersRound } from "lucide-react";
+import { Building2, FileCheck2, KeyRound, FileSignature, FileText, Clock, FolderKanban, Handshake, LayoutDashboard, ListChecks, LogOut, Receipt, Users, UsersRound } from "lucide-react";
 import { logoutAction } from "@/app/actions/auth";
 import { cn } from "@/lib/cn";
 import { ROLE_LABEL, type Role } from "@/lib/crm-rules";
 
-const ICONS = { home: LayoutDashboard, deals: Handshake, clients: Users, proposals: FileText, company: Building2, team: UsersRound, tasks: ListChecks, projects: FolderKanban, attendance: Clock, contracts: FileSignature, clientContracts: FileCheck2, invoices: Receipt } as const;
+const ICONS = { home: LayoutDashboard, deals: Handshake, clients: Users, proposals: FileText, company: Building2, team: UsersRound, tasks: ListChecks, projects: FolderKanban, attendance: Clock, contracts: FileSignature, clientContracts: FileCheck2, invoices: Receipt, keys: KeyRound } as const;
 export type NavItem = { href: string; label: string; icon: keyof typeof ICONS };
 
 const isActive = (pathname: string, href: string) => (href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(`${href}/`));
