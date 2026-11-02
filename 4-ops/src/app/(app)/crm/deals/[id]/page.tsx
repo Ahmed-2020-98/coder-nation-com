@@ -1,17 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowRight, Check, FilePlus2, FileText, FolderKanban } from "lucide-react";
+import { ArrowRight, Check, FileCheck2, FilePlus2, FileText, FolderKanban } from "lucide-react";
 import { completeFollowUpAction } from "@/app/actions/crm";
 import { createProposalAction } from "@/app/actions/proposals";
 import { PageHeader } from "@/components/PageHeader";
-import { ProposalBadge, StageBadge } from "@/components/badges";
+import { ClientContractBadge, ProposalBadge, StageBadge } from "@/components/badges";
 import { todayInCairo } from "@/lib/dates";
 import { Badge } from "@/components/ui/Badge";
 import { Card } from "@/components/ui/Card";
 import { ACTIVITY_LABEL, SOURCE_LABEL } from "@/lib/crm-rules";
 import { formatDateTime, whatsappLinkFor } from "@/lib/format";
 import { formatMoney } from "@/lib/money";
+import { listClientContracts } from "@/server/client-contracts";
 import { getDeal, listActivities, listFollowUps } from "@/server/crm";
 import { canAccessDeal, can } from "@/server/permissions";
 import { projectOfDeal } from "@/server/projects";
@@ -31,12 +32,13 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
   if (!deal || !canAccessDeal(user, deal)) notFound();
 
   const manage = can(user.role, "deal.edit");
-  const [activities, followUps, users, proposals, projects] = await Promise.all([
+  const [activities, followUps, users, proposals, projects, contracts] = await Promise.all([
     listActivities(id),
     listFollowUps({ dealId: id }),
     manage ? listAssignableUsers() : Promise.resolve([]),
     can(user.role, "proposal.view") ? listProposals(id) : Promise.resolve([]),
     can(user.role, "project.manage") ? projectOfDeal(id) : Promise.resolve([]),
+    can(user.role, "client_contract.manage") ? listClientContracts({ dealId: id }) : Promise.resolve([]),
   ]);
   const phone = deal.contactPhone ?? deal.clientPhone;
   const whatsapp = whatsappLinkFor(phone);
@@ -201,6 +203,28 @@ export default async function DealPage({ params }: { params: Promise<{ id: strin
                   </button>
                 </form>
               ) : null}
+            </Card>
+          ) : null}
+
+          {contracts.length > 0 ? (
+            <Card className="p-6">
+              <h2 className="mb-4 text-lg font-bold">العقد والدفعات</h2>
+              <ul className="grid gap-2.5 text-sm">
+                {contracts.map((c) => (
+                  <li key={c.id} className="grid gap-1">
+                    <span className="flex items-center justify-between gap-3">
+                      <Link href={`/client-contracts/${c.id}`} className="inline-flex items-center gap-2 font-semibold underline-offset-4 hover:text-accent hover:underline">
+                        <FileCheck2 aria-hidden="true" className="size-4" />
+                        <span dir="ltr">{c.number}</span>
+                      </Link>
+                      <ClientContractBadge status={c.status} />
+                    </span>
+                    <span className="text-ink-muted">
+                      مدفوع {formatMoney(c.paidMinor, c.currency)} من {formatMoney(c.totalMinor, c.currency)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             </Card>
           ) : null}
 

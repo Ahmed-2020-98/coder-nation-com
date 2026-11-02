@@ -5,7 +5,9 @@ import { computeTotals, formatMoney, milestonesAreComplete, parseMoney, percentO
 import { PLACEHOLDER_RE, blockingProblems, countPlaceholders, type ProposalDraft } from "@/lib/proposal-rules";
 import { TEMPLATES, templateFor } from "@/lib/proposal-templates";
 import { MAX_SKEW_SECONDS, intakeSchema, signIntake, verifyIntake } from "@/server/intake";
-import { PERMISSIONS, can, canAccessDeal, canAccessTask, type Permission } from "@/server/permissions";
+import { PERMISSIONS, can, canAccessContract, canAccessDeal, canAccessTask, type Permission } from "@/server/permissions";
+import { contractProblems, fillTokens, formatClock, formatWorkDays, type ContractFacts } from "@/lib/contract-rules";
+import { CLIENT_TOKENS, clientContractProblems, fillClientTokens, formatWeeks, paidPerMilestone, paymentSummary, takesPayments, type ClientContractFacts } from "@/lib/client-contract-rules";
 import { validateTaskTransition } from "@/lib/task-flow";
 import { TASK_STATUSES, type TaskStatus } from "@/lib/task-rules";
 import { addDays, cairoMinutes, isIsoDate, isOverdue, todayInCairo } from "@/lib/dates";
@@ -124,6 +126,11 @@ describe("permissions", () => {
     "attendance.edit": { owner: true, manager: true, employee: false },
     "schedule.manage": { owner: true, manager: true, employee: false },
     "leave.manage": { owner: true, manager: true, employee: false },
+    "contract.manage": { owner: true, manager: false, employee: false },
+    "contract.respond": { owner: true, manager: true, employee: true },
+    "client_contract.manage": { owner: true, manager: true, employee: false },
+    "invoice.issue": { owner: true, manager: true, employee: false },
+    "invoice.void": { owner: true, manager: false, employee: false },
   };
   it("matches the agreed table exactly, for every role and every permission", () => {
     expect(Object.keys(PERMISSIONS).sort()).toEqual(Object.keys(MATRIX).sort());
@@ -133,6 +140,16 @@ describe("permissions", () => {
   });
   it("an employee never sees prices: no proposal permission of any kind", () => {
     for (const permission of ["proposal.view", "proposal.edit", "proposal.export"] as const) expect(can("employee", permission)).toBe(false);
+  });
+  it("a contract is the owner's and its employee's only, and the employee never sees a draft", () => {
+    const mine = { id: "u1", role: "employee" as const };
+    const manager = { id: "u3", role: "manager" as const };
+    expect(canAccessContract(mine, { userId: "u1", status: "sent" })).toBe(true);
+    expect(canAccessContract(mine, { userId: "u1", status: "accepted" })).toBe(true);
+    expect(canAccessContract(mine, { userId: "u1", status: "draft" })).toBe(false);
+    expect(canAccessContract(mine, { userId: "u2", status: "sent" })).toBe(false);
+    expect(canAccessContract(manager, { userId: "u1", status: "sent" })).toBe(false);
+    expect(canAccessContract({ id: "o", role: "owner" }, { userId: "u1", status: "draft" })).toBe(true);
   });
   it("employees reach only their own deals; owners and managers reach all", () => {
     const mine = { id: "u1", role: "employee" as const };
@@ -396,5 +413,85 @@ describe("attendance rules", () => {
   it("reads the office clock in Cairo, summer and winter", () => {
     expect(cairoMinutes(new Date("2026-03-10T07:20:00Z"))).toBe(9 * 60 + 20);
     expect(cairoMinutes(new Date("2026-07-10T07:20:00Z"))).toBe(10 * 60 + 20);
+  });
+});
+
+describe("contract rules", () => {
+  const facts: ContractFacts = { employeeName: "سارة علي", jobTitle: "مبيعات", startDate: "2026-11-15", workStart: "09:00", workEnd: "17:30", workDays: [4, 0, 1], salaryMinor: 800000, currency: "EGP", commission: "5%" };
+
+  it("reads shifts and days the way a person does", () => {
+    expect(formatClock("09:00")).toBe("9:00 صباحًا");
+    expect(formatClock("17:30")).toBe("5:30 مساءً");
+    expect(formatClock("00:15")).toBe("12:15 صباحًا");
+    expect(formatClock("12:00")).toBe("12:00 مساءً");
+    expect(formatWorkDays([4, 0, 1])).toBe("الأحد، الاثنين، الخميس");
+  });
+
+  it("fills every known token and leaves an unknown one visible", () => {
+    const text = fillTokens("من الساعة {بداية_العمل} إلى الساعة {نهاية_العمل}، أيام: {أيام_العمل}. {اسم_الموظف} {غلط}", facts);
+    expect(text).toBe("من الساعة 9:00 صباحًا إلى الساعة 5:30 مساءً، أيام: الأحد، الاثنين، الخميس. سارة علي {غلط}");
+    expect(fillTokens("{المرتب}", facts)).toBe("\u20668,000.00 EGP\u2069 شهريًا");
+  });
+
+  it("won't send a contract with holes in it", () => {
+    const clauses = [{ title: "المهام", body: "- بيع" }];
+    expect(contractProblems({ ...facts, clauses })).toEqual([]);
+    expect(contractProblems({ ...facts, clauses, startDate: null })[0]).toContain("تاريخ البدء");
+    expect(contractProblems({ ...facts, clauses, workDays: [] })[0]).toContain("أيام العمل");
+    expect(contractProblems({ ...facts, clauses, salaryMinor: null, commission: " " })[0]).toContain("المقابل المادي");
+    expect(contractProblems({ ...facts, clauses: [] })[0]).toContain("بند");
+    // Commission only is fine, but then a clause can't print the (empty) salary.
+    expect(contractProblems({ ...facts, salaryMinor: null, clauses })).toEqual([]);
+    expect(contractProblems({ ...facts, salaryMinor: null, clauses: [{ title: "الأجر", body: "{المرتب}" }] })[0]).toContain("«الأجر»");
+  });
+});
+
+describe("client contract rules", () => {
+  const facts = (over: Partial<ClientContractFacts> = {}): ClientContractFacts => ({
+    title: "موقع شركة النور",
+    clientName: "شركة النور",
+    companyName: "Coder Nation",
+    proposalNumber: "P-2026-0001",
+    totalMinor: 1_140_000,
+    currency: "EGP",
+    startDate: "2026-11-15",
+    timeline: [{ weeks: 2 }, { weeks: 4 }, { weeks: 1 }],
+    ...over,
+  });
+
+  it("fills every token, with amounts and numbers kept left-to-right inside Arabic text", () => {
+    const body = CLIENT_TOKENS.map((t) => t.token).join(" | ");
+    expect(fillClientTokens(body, facts())).toBe(
+      "موقع شركة النور | شركة النور | Coder Nation | \u2066P-2026-0001\u2069 | \u206611,400.00 EGP\u2069 | 15 نوفمبر 2026 | 7 أسابيع",
+    );
+    expect(fillClientTokens("{غلط}", facts())).toBe("{غلط}");
+  });
+
+  it("spells weeks the Arabic way", () => {
+    expect([0, 1, 2, 3, 10, 11].map(formatWeeks)).toEqual(["", "أسبوع واحد", "أسبوعان", "3 أسابيع", "10 أسابيع", "11 أسبوعًا"]);
+  });
+
+  it("won't let a contract with a gap, an empty token or no start date be marked ready", () => {
+    const clauses = [{ title: "موضوع العقد", body: "تنفيذ {عنوان_المشروع} بقيمة {إجمالي_العقد}" }];
+    expect(clientContractProblems({ ...facts(), clauses })).toEqual([]);
+    expect(clientContractProblems({ ...facts({ startDate: null }), clauses })).toEqual(["حدد تاريخ بدء التنفيذ"]);
+    expect(clientContractProblems({ ...facts(), clauses: [] })).toEqual(["العقد لازم يبقى فيه بند واحد على الأقل"]);
+    expect(clientContractProblems({ ...facts({ timeline: [] }), clauses: [{ title: "المدة", body: "مدته {مدة_التنفيذ}" }] })[0]).toContain("مدة التنفيذ");
+    expect(clientContractProblems({ ...facts(), clauses: [{ title: "السرية", body: "لمدة [المدة] بعد انتهائه" }] })).toEqual(["البند «السرية» فيه فراغ لسه ما اتملاش: [المدة]"]);
+    // The regex is global: checking twice in a row must give the same answer.
+    expect(clientContractProblems({ ...facts(), clauses: [{ title: "السرية", body: "[المدة]" }] })).toHaveLength(1);
+  });
+
+  it("counts only live invoices as paid, per contract and per payment of the schedule", () => {
+    const invoices = [
+      { amountMinor: 400_000, status: "issued" as const, milestoneIndex: 0 },
+      { amountMinor: 100_000, status: "void" as const, milestoneIndex: 0 },
+      { amountMinor: 50_000, status: "issued" as const, milestoneIndex: 1 },
+      { amountMinor: 10_000, status: "issued" as const, milestoneIndex: null },
+    ];
+    expect(paymentSummary(1_000_000, invoices)).toEqual({ paidMinor: 460_000, remainingMinor: 540_000 });
+    expect(paymentSummary(100, [{ amountMinor: 100, status: "issued" }])).toEqual({ paidMinor: 100, remainingMinor: 0 });
+    expect(paidPerMilestone(3, invoices)).toEqual([400_000, 50_000, 0]);
+    expect(["draft", "ready", "signed", "cancelled"].map((s) => takesPayments(s as never))).toEqual([false, true, true, false]);
   });
 });

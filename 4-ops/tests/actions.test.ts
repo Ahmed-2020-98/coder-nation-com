@@ -29,6 +29,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/server/pdf", () => ({
   PdfError: class PdfError extends Error {},
   renderProposalPdf: async () => Buffer.from("%PDF-1.7 fake"),
+  renderContractPdf: async () => Buffer.from("%PDF-1.7 fake"),
+  renderClientContractPdf: async () => Buffer.from("%PDF-1.7 fake"),
+  renderInvoicePdf: async () => Buffer.from("%PDF-1.7 fake"),
 }));
 
 type Mods = {
@@ -46,6 +49,8 @@ type Mods = {
     tasks: typeof import("@/app/actions/tasks");
     projects: typeof import("@/app/actions/projects");
     attendance: typeof import("@/app/actions/attendance");
+    contracts: typeof import("@/app/actions/contracts");
+    clientContracts: typeof import("@/app/actions/client-contracts");
   };
   exportRoute: typeof import("@/app/api/attendance/export/route");
 };
@@ -104,6 +109,8 @@ beforeAll(async () => {
   m.actions.tasks = await import("@/app/actions/tasks");
   m.actions.projects = await import("@/app/actions/projects");
   m.actions.attendance = await import("@/app/actions/attendance");
+  m.actions.contracts = await import("@/app/actions/contracts");
+  m.actions.clientContracts = await import("@/app/actions/client-contracts");
   m.exportRoute = await import("@/app/api/attendance/export/route");
 });
 
@@ -113,7 +120,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await clearTables(raw, ["leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
+  await clearTables(raw, ["invoices", "invoice_counters", "client_contracts", "client_contract_counters", "contracts", "contract_counters", "leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
   cookieJar.clear();
   for (const key of [...requestHeaders.keys()]) requestHeaders.delete(key);
   requestHeaders.set("x-forwarded-for", "203.0.113.7");
@@ -567,3 +574,114 @@ describe("attendance: who can do what", () => {
     expect(fallback.headers.get("Content-Disposition")).toMatch(/attendance-\d{4}-\d{2}\.csv/);
   });
 });
+
+describe("contracts: who can do what", () => {
+  const pdf = async (id: string) => (await import("@/app/api/contracts/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
+  const payload = (over: Record<string, unknown> = {}) =>
+    JSON.stringify({ title: "اتفاق عمل", employeeName: "سارة علي", jobTitle: "مبيعات", phone: "", email: "", nationalId: "", address: "", startDate: "2026-11-15", workStart: "09:00", workEnd: "17:00", workDays: [0, 1, 2, 3, 4], salary: "8000", currency: "EGP", commission: "", clauses: [{ title: "المهام", body: "- بيع" }], ...over });
+
+  it("only the owner makes, edits and sends; the employee reads and answers their own; nobody else sees it", async () => {
+    const employee = await login("employee");
+    const employeeCookie = cookieJar.get("cn_ops") as string;
+    await login("owner");
+    const ownerCookie = cookieJar.get("cn_ops") as string;
+    const to = await redirected(() => m.actions.contracts.createContractAction(null, form({ userId: employee.id, templateId: "" })));
+    const id = (to ?? "").split("/").pop() as string;
+    expect(to).toBe(`/contracts/${id}`);
+    expect(await m.actions.contracts.sendContractAction(null, form({ id }))).toMatchObject({ error: expect.any(String) });
+    expect(await m.actions.contracts.saveContractAction(null, form({ id, payload: payload() }))).toMatchObject({ ok: true });
+
+    // The employee can't see the draft, edit it, or send it.
+    cookieJar.set("cn_ops", employeeCookie);
+    expect((await pdf(id)).status).toBe(404);
+    expect(await redirected(() => m.actions.contracts.saveContractAction(null, form({ id, payload: payload({ salary: "99999" }) })))).toBe("/");
+    expect(await redirected(() => m.actions.contracts.sendContractAction(null, form({ id })))).toBe("/");
+    expect(await redirected(() => m.actions.contracts.createContractAction(null, form({ userId: employee.id, templateId: "" })))).toBe("/");
+    expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted", agree: "on" }))).toMatchObject({ error: expect.any(String) });
+
+    cookieJar.set("cn_ops", ownerCookie);
+    expect(await m.actions.contracts.sendContractAction(null, form({ id }))).toMatchObject({ ok: true });
+
+    // A manager (or any other person) can't reach someone else's contract.
+    await login("manager");
+    expect((await pdf(id)).status).toBe(404);
+    expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted", agree: "on" }))).toMatchObject({ error: expect.any(String) });
+
+    // The employee now gets the PDF, and must tick the box to accept.
+    cookieJar.set("cn_ops", employeeCookie);
+    const file = await pdf(id);
+    expect(file.status).toBe(200);
+    expect(file.headers.get("content-disposition")).toBe(`attachment; filename="C-${new Date().getFullYear()}-0001.pdf"`);
+    expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted" }))).toMatchObject({ error: expect.stringContaining("أوافق") });
+    expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted", agree: "on" }))).toMatchObject({ ok: true });
+    const [row] = await raw<{ status: string; response_ip_hash: string | null; salary_minor: number }[]>`select status, response_ip_hash, salary_minor from contracts where id = ${id}`;
+    expect(row.status).toBe("accepted");
+    expect(row.response_ip_hash).toMatch(/^[0-9a-f]{32}$/);
+    expect(Number(row.salary_minor)).toBe(800000);
+
+    logout();
+    expect(await redirected(() => pdf(id))).toBe("/login");
+  });
+});
+
+describe("client contracts and invoices: who can do what", () => {
+  const contractPdf = async (id: string) => (await import("@/app/api/client-contracts/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
+  const invoicePdf = async (id: string) => (await import("@/app/api/invoices/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
+  const YEAR = new Date().getFullYear();
+
+  it("a manager makes the contract, records a payment and gets the invoice; only the owner voids; an employee gets nothing", async () => {
+    const manager = await login("manager");
+    const { id: dealId } = await m.crm.createDeal({ title: "صفقة", service: "موقع إلكتروني", source: "manual", valueMinor: null, currency: null, ownerId: null, message: null, client: { name: "عميل", phone: null, email: null } }, manager.id);
+    const proposalId = (await m.proposals.createProposalForDeal(dealId, manager.id)) as string;
+    const parsed = m.proposals.parseProposalInput({ title: "عرض", currency: "SAR", taxPercent: "", discount: "", validUntil: "", intro: "", items: [{ title: "بند", description: "", quantity: 1, price: "1000" }], milestones: [{ title: "الكل", percent: "100" }], sections: [], timeline: [] });
+    if (!parsed.ok) throw new Error(parsed.error);
+    await m.proposals.saveProposal(proposalId, parsed.data);
+    await m.proposals.markSent(proposalId, manager.id);
+
+    expect(await m.actions.clientContracts.createClientContractAction(null, form({ proposalId, templateId: "" }))).toMatchObject({ error: expect.stringContaining("قبله") });
+    await m.proposals.setOutcome(proposalId, "accepted", manager.id);
+    const to = await redirected(() => m.actions.clientContracts.createClientContractAction(null, form({ proposalId, templateId: "" })));
+    const id = (to ?? "").split("/").pop() as string;
+    expect(to).toBe(`/client-contracts/${id}`);
+    const payload = JSON.stringify({ title: "موقع", clientName: "عميل", clientRepresentative: "", clientIdNumber: "", clientAddress: "", clientPhone: "", clientEmail: "", startDate: "2026-11-15", clauses: [{ title: "موضوع العقد", body: "تنفيذ {عنوان_المشروع}" }] });
+    expect(await m.actions.clientContracts.saveClientContractAction(null, form({ id, payload: "nope" }))).toMatchObject({ error: expect.any(String) });
+    expect(await m.actions.clientContracts.saveClientContractAction(null, form({ id, payload }))).toMatchObject({ ok: true });
+    expect(await m.actions.clientContracts.markClientContractReadyAction(null, form({ id }))).toMatchObject({ ok: true });
+    expect(await m.actions.clientContracts.markClientContractSignedAction(null, form({ id, signedOn: "2026-11-01", signedByName: "x" }))).toMatchObject({ error: expect.any(String) });
+    expect(await m.actions.clientContracts.markClientContractSignedAction(null, form({ id, signedOn: "2026-11-01", signedByName: "مدير العميل" }))).toMatchObject({ ok: true });
+
+    const payment = { contractId: id, amount: "400", paidOn: "2026-11-01", method: "bank_transfer", reference: "", note: "", milestoneIndex: "0" };
+    const invoiceTo = await redirected(() => m.actions.clientContracts.recordPaymentAction(null, form(payment)));
+    const invoiceId = (invoiceTo ?? "").split("/").pop() as string;
+    expect(invoiceTo).toBe(`/invoices/${invoiceId}`);
+    expect(await m.actions.clientContracts.recordPaymentAction(null, form({ ...payment, amount: "700" }))).toMatchObject({ error: expect.stringContaining("المتبقي") });
+    const file = await invoicePdf(invoiceId);
+    expect(file.status).toBe(200);
+    expect(file.headers.get("content-disposition")).toBe(`attachment; filename="INV-${YEAR}-0001.pdf"`);
+    expect((await contractPdf(id)).headers.get("content-disposition")).toBe(`attachment; filename="CC-${YEAR}-0001.pdf"`);
+    expect((await invoicePdf("00000000-0000-0000-0000-000000000000")).status).toBe(404);
+
+    // A manager can't void an invoice.
+    expect(await redirected(() => m.actions.clientContracts.voidInvoiceAction(null, form({ id: invoiceId, reason: "غلط" })))).toBe("/");
+
+    // An employee can't reach any of it.
+    await login("employee");
+    expect(await redirected(() => contractPdf(id))).toBe("/");
+    expect(await redirected(() => invoicePdf(invoiceId))).toBe("/");
+    expect(await redirected(() => m.actions.clientContracts.recordPaymentAction(null, form({ ...payment, amount: "1" })))).toBe("/");
+    expect(await redirected(() => m.actions.clientContracts.createClientContractAction(null, form({ proposalId, templateId: "" })))).toBe("/");
+    expect(await redirected(() => m.actions.clientContracts.cancelClientContractAction(null, form({ id, reason: "x x" })))).toBe("/");
+    expect(await redirected(() => m.actions.clientContracts.saveClientTemplateAction(null, form({ id, payload: "{}" })))).toBe("/");
+
+    // The owner voids it, with a reason.
+    await login("owner");
+    expect(await m.actions.clientContracts.voidInvoiceAction(null, form({ id: invoiceId, reason: "" }))).toMatchObject({ error: expect.any(String) });
+    expect(await m.actions.clientContracts.voidInvoiceAction(null, form({ id: invoiceId, reason: "اتسجّلت بالغلط" }))).toMatchObject({ ok: true });
+    const [row] = await raw<{ status: string }[]>`select status from invoices where id = ${invoiceId}`;
+    expect(row.status).toBe("void");
+
+    logout();
+    expect(await redirected(() => invoicePdf(invoiceId))).toBe("/login");
+  });
+});
+

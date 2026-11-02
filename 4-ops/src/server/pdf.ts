@@ -14,7 +14,26 @@ let queue: Promise<unknown> = Promise.resolve();
  * the browser; it only ever visits this app's own URL (APP_URL), never anything derived from a request.
  */
 export function renderProposalPdf(proposalId: string, sessionToken: string, number: string): Promise<Buffer> {
-  const run = queue.then(() => render(proposalId, sessionToken, number));
+  return renderPagePdf(`/proposals/${encodeURIComponent(proposalId)}/print`, sessionToken, number);
+}
+
+/** Same as above for /contracts/:id/print. */
+export function renderContractPdf(contractId: string, sessionToken: string, number: string): Promise<Buffer> {
+  return renderPagePdf(`/contracts/${encodeURIComponent(contractId)}/print`, sessionToken, number);
+}
+
+/** Same as above for /client-contracts/:id/print. */
+export function renderClientContractPdf(contractId: string, sessionToken: string, number: string): Promise<Buffer> {
+  return renderPagePdf(`/client-contracts/${encodeURIComponent(contractId)}/print`, sessionToken, number);
+}
+
+/** Same as above for /invoices/:id/print. */
+export function renderInvoicePdf(invoiceId: string, sessionToken: string, number: string): Promise<Buffer> {
+  return renderPagePdf(`/invoices/${encodeURIComponent(invoiceId)}/print`, sessionToken, number);
+}
+
+function renderPagePdf(path: string, sessionToken: string, label: string): Promise<Buffer> {
+  const run = queue.then(() => render(path, sessionToken, label));
   queue = run.catch(() => undefined);
   return run;
 }
@@ -41,14 +60,15 @@ async function launchBrowser() {
   return puppeteer.launch({ executablePath, headless: true, args: ["--font-render-hinting=none"], timeout: 30_000 }).catch(fail);
 }
 
-async function render(proposalId: string, sessionToken: string, number: string): Promise<Buffer> {
+/** `path` is always one of the fixed print routes above (with an encoded id), never anything taken from a request. */
+async function render(path: string, sessionToken: string, number: string): Promise<Buffer> {
   const base = appUrl();
   const browser = await launchBrowser();
   try {
     const page = await browser.newPage();
     await page.setCookie({ name: SESSION_COOKIE, value: sessionToken, url: base, httpOnly: true, secure: isProduction && base.startsWith("https") });
-    const response = await page.goto(`${base}/proposals/${encodeURIComponent(proposalId)}/print`, { waitUntil: "networkidle0", timeout: 30_000 });
-    if (!response?.ok() || new URL(page.url()).pathname.startsWith("/login")) throw new PdfError("تعذّر فتح صفحة الطباعة (الجلسة أو العرض).");
+    const response = await page.goto(`${base}${path}`, { waitUntil: "networkidle0", timeout: 30_000 });
+    if (!response?.ok() || new URL(page.url()).pathname.startsWith("/login")) throw new PdfError("تعذّر فتح صفحة الطباعة (الجلسة أو المستند).");
     await page.evaluate(() => document.fonts.ready);
     const pdf = await page.pdf({
       format: "A4",

@@ -17,6 +17,9 @@ type Mods = {
   tasks: typeof import("@/server/tasks");
   projects: typeof import("@/server/projects");
   attendance: typeof import("@/server/attendance");
+  contracts: typeof import("@/server/contracts");
+  clientContracts: typeof import("@/server/client-contracts");
+  invoices: typeof import("@/server/invoices");
 };
 const m = {} as Mods;
 let raw: Db;
@@ -28,7 +31,7 @@ beforeAll(async () => {
   process.env.DATABASE_URL = testDb.url;
   process.env.IP_HASH_SALT = "test-salt-test-salt-test-salt";
   const { migrate } = await import("../db/migrate.mjs");
-  expect(await migrate(raw)).toEqual(["001_init.sql", "002_tasks.sql", "003_attendance.sql"]);
+  expect(await migrate(raw)).toEqual(["001_init.sql", "002_tasks.sql", "003_attendance.sql", "004_contracts.sql", "005_client_contracts.sql"]);
   expect(await migrate(raw)).toEqual([]);
   vi.resetModules();
   m.db = await import("@/server/db");
@@ -41,6 +44,9 @@ beforeAll(async () => {
   m.tasks = await import("@/server/tasks");
   m.projects = await import("@/server/projects");
   m.attendance = await import("@/server/attendance");
+  m.contracts = await import("@/server/contracts");
+  m.clientContracts = await import("@/server/client-contracts");
+  m.invoices = await import("@/server/invoices");
 });
 
 afterAll(async () => {
@@ -49,7 +55,7 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await clearTables(raw, ["leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
+  await clearTables(raw, ["invoices", "invoice_counters", "client_contracts", "client_contract_counters", "contracts", "contract_counters", "leaves", "attendance_edits", "attendance", "work_schedules", "task_events", "tasks", "projects", "proposal_milestones", "proposal_items", "proposals", "proposal_counters", "follow_ups", "activities", "deals", "contacts", "clients", "rate_limits", "sessions", "users"]);
 });
 
 async function seedUser(email: string, role: "owner" | "manager" | "employee", extra: { active?: boolean; must?: boolean; password?: string } = {}) {
@@ -725,3 +731,331 @@ describe("attendance", () => {
     expect(await m.attendance.personMonth((await seedUser("free@x.com", "employee")).id, "2026-03")).toBeNull();
   });
 });
+
+describe("employee contracts", () => {
+  const FP = { ipHash: "hash-1", userAgent: "vitest" };
+  async function setup() {
+    const owner = await seedUser("boss@x.com", "owner");
+    const employee = await seedUser("sara@x.com", "employee");
+    const [template] = (await m.contracts.listTemplates()).filter((t) => t.jobTitle === "مبيعات وإدارة علاقات العملاء");
+    const id = (await m.contracts.createContract({ userId: employee.id, templateId: template.id }, owner.id)) as string;
+    return { owner, employee, template, id };
+  }
+  const complete = (over: Record<string, unknown> = {}) => {
+    const parsed = m.contracts.parseContractInput({
+      title: "اتفاق عمل",
+      employeeName: "سارة علي",
+      jobTitle: "مبيعات",
+      phone: "٠١٠٠٠٠٠٠٠٠٠",
+      email: "Sara@X.com",
+      nationalId: "٢٩٠٠١٠١٠١٢٣٤٥٦",
+      address: "القاهرة",
+      startDate: "2026-11-15",
+      workStart: "10:00",
+      workEnd: "18:00",
+      workDays: [0, 1, 2, 3, 4, 4],
+      salary: "8,000",
+      currency: "EGP",
+      commission: "5% من قيمة كل صفقة",
+      clauses: [{ title: "المهام", body: "- بيع" }],
+      ...over,
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    return parsed.data;
+  };
+
+  it("ships with the sales template holding the two agreed clauses", async () => {
+    const { template } = await setup();
+    expect(template.clauses.map((c) => c.title)).toEqual(["المهام", "مواعيد وأيام العمل"]);
+    expect(template.clauses[0].body.split("\n")).toHaveLength(6);
+    expect(template.clauses[1].body).toContain("{بداية_العمل}");
+  });
+
+  it("starts a numbered draft from the template, the person and their shift", async () => {
+    const owner = await seedUser("boss@x.com", "owner");
+    const employee = await seedUser("sara@x.com", "employee");
+    await m.attendance.saveSchedule(employee.id, { startTime: "10:00", endTime: "18:30", workDays: [6, 0, 1], graceMinutes: 10 });
+    const [template] = await m.contracts.listTemplates();
+    const id = (await m.contracts.createContract({ userId: employee.id, templateId: template.id }, owner.id)) as string;
+    const contract = await m.contracts.getContract(id);
+    expect(contract).toMatchObject({ status: "draft", employeeName: "sara user", email: "sara@x.com", workStart: "10:00", workEnd: "18:30", workDays: [0, 1, 6], clauses: template.clauses });
+    expect(contract?.number).toBe(`C-${new Date().getFullYear()}-0001`);
+    expect(await m.contracts.createContract({ userId: employee.id, templateId: "00000000-0000-0000-0000-000000000000" }, owner.id)).toBeNull();
+    const blank = await m.contracts.getContract((await m.contracts.createContract({ userId: employee.id, templateId: null }, owner.id)) as string);
+    expect(blank).toMatchObject({ clauses: [], workStart: "10:00", number: `C-${new Date().getFullYear()}-0002` });
+  });
+
+  it("parses what the editor sends: Arabic digits, duplicate days, bad times and money", () => {
+    expect(complete()).toMatchObject({ phone: "01000000000", email: "sara@x.com", nationalId: "29001010123456", workDays: [0, 1, 2, 3, 4], salaryMinor: 800000 });
+    expect(complete({ salary: "" }).salaryMinor).toBeNull();
+    const bad = (over: Record<string, unknown>) => m.contracts.parseContractInput({ ...complete(), salary: "1", phone: "", email: "", nationalId: "", startDate: "", ...over });
+    expect(bad({ workStart: "18:00", workEnd: "09:00" })).toMatchObject({ ok: false, error: expect.stringContaining("نهاية الدوام") });
+    expect(bad({ workStart: "9am" })).toMatchObject({ ok: false });
+    expect(bad({ salary: "abc" })).toMatchObject({ ok: false, error: expect.stringContaining("المرتب") });
+    expect(bad({ startDate: "2026-02-30" })).toMatchObject({ ok: false });
+    expect(bad({ email: "nope" })).toMatchObject({ ok: false });
+    expect(bad({ workDays: [7] })).toMatchObject({ ok: false });
+  });
+
+  it("can't be sent with holes in it; once sent it's locked, and can be withdrawn back to a draft", async () => {
+    const { id } = await setup();
+    expect(await m.contracts.sendContract(id)).toMatchObject({ ok: false, error: expect.stringContaining("تاريخ البدء") });
+    expect(await m.contracts.saveContract(id, complete())).toEqual({ ok: true });
+    expect(await m.contracts.sendContract(id)).toEqual({ ok: true });
+    expect(await m.contracts.sendContract(id)).toMatchObject({ ok: false });
+    expect(await m.contracts.saveContract(id, complete({ salary: "1" }))).toMatchObject({ ok: false });
+    expect((await m.contracts.getContract(id))?.salaryMinor).toBe(800000);
+    expect(await m.contracts.withdrawContract(id)).toEqual({ ok: true });
+    expect(await m.contracts.getContract(id)).toMatchObject({ status: "draft", sentAt: null });
+  });
+
+  it("won't send to a deactivated account (they could never open it)", async () => {
+    const { id, employee } = await setup();
+    await m.contracts.saveContract(id, complete());
+    await raw`update users set active = false where id = ${employee.id}`;
+    expect(await m.contracts.sendContract(id)).toMatchObject({ ok: false, error: expect.stringContaining("موقوف") });
+  });
+
+  it("only the employee answers, only once, and only a sent contract", async () => {
+    const { id, employee, owner } = await setup();
+    await m.contracts.saveContract(id, complete());
+    expect(await m.contracts.respondToContract({ id, userId: employee.id, answer: "accepted", reason: "" }, FP)).toMatchObject({ ok: false }); // still a draft
+    await m.contracts.sendContract(id);
+    expect(await m.contracts.respondToContract({ id, userId: owner.id, answer: "accepted", reason: "" }, FP)).toMatchObject({ ok: false });
+    expect(await m.contracts.respondToContract({ id, userId: employee.id, answer: "accepted", reason: "تجاهل" }, FP)).toEqual({ ok: true });
+    expect(await m.contracts.respondToContract({ id, userId: employee.id, answer: "declined", reason: "" }, FP)).toMatchObject({ ok: false, error: expect.stringContaining("قبل كده") });
+    expect(await m.contracts.withdrawContract(id)).toMatchObject({ ok: false });
+    expect(await m.contracts.getContract(id)).toMatchObject({ status: "accepted", declineReason: "", respondedAt: expect.any(Date) });
+    const [evidence] = await raw<{ response_ip_hash: string; response_user_agent: string }[]>`select response_ip_hash, response_user_agent from contracts where id = ${id}`;
+    expect(evidence).toEqual({ response_ip_hash: "hash-1", response_user_agent: "vitest" });
+  });
+
+  it("a declined contract keeps the reason; a copy is a fresh draft with a new number", async () => {
+    const { id, employee, owner } = await setup();
+    await m.contracts.saveContract(id, complete());
+    await m.contracts.sendContract(id);
+    await m.contracts.respondToContract({ id, userId: employee.id, answer: "declined", reason: "  المرتب قليل  " }, FP);
+    expect(await m.contracts.getContract(id)).toMatchObject({ status: "declined", declineReason: "المرتب قليل" });
+    const copy = await m.contracts.getContract((await m.contracts.duplicateContract(id, owner.id)) as string);
+    expect(copy).toMatchObject({ status: "draft", salaryMinor: 800000, nationalId: "29001010123456", startDate: "2026-11-15", number: `C-${new Date().getFullYear()}-0002` });
+  });
+
+  it("the employee lists only their own contracts that were sent, and sees what waits for an answer", async () => {
+    const { id, employee, owner } = await setup();
+    const other = await seedUser("other@x.com", "employee");
+    await m.contracts.createContract({ userId: other.id, templateId: null }, owner.id);
+    expect(await m.contracts.listContracts({ userId: employee.id })).toHaveLength(0);
+    expect(await m.contracts.pendingContractCount(employee.id)).toBe(0);
+    await m.contracts.saveContract(id, complete());
+    await m.contracts.sendContract(id);
+    expect((await m.contracts.listContracts({ userId: employee.id })).map((c) => c.id)).toEqual([id]);
+    expect(await m.contracts.pendingContractCount(employee.id)).toBe(1);
+    expect(await m.contracts.listContracts()).toHaveLength(2);
+  });
+
+  it("templates: edit, and delete without touching contracts made from them", async () => {
+    const owner = await seedUser("boss@x.com", "owner");
+    const employee = await seedUser("sara@x.com", "employee");
+    const templateId = await m.contracts.createTemplate();
+    expect(await m.contracts.saveTemplate(templateId, { title: "مصمم", jobTitle: "مصمم UI", clauses: [{ title: "المهام", body: "تصميم" }] })).toEqual({ ok: true });
+    const id = (await m.contracts.createContract({ userId: employee.id, templateId }, owner.id)) as string;
+    expect(await m.contracts.deleteTemplate(templateId)).toBe(true);
+    expect(await m.contracts.getContract(id)).toMatchObject({ templateId: null, jobTitle: "مصمم UI", clauses: [{ title: "المهام", body: "تصميم" }] });
+  });
+
+  it("the database itself refuses impossible contracts", async () => {
+    const { id } = await setup();
+    await expect(raw`update contracts set status = 'sent' where id = ${id}`).rejects.toThrow(); // sent needs sent_at
+    await expect(raw`update contracts set work_start = '18:00', work_end = '09:00' where id = ${id}`).rejects.toThrow();
+    await expect(raw`update contracts set work_days = '[1, 9]' where id = ${id}`).rejects.toThrow();
+  });
+});
+
+describe("client contracts and invoices", () => {
+  const YEAR = new Date().getFullYear();
+  const TOTAL = 2_736_114; // (10,000 + 2 x 7,500.50 - 1,000) + 14% tax, in piastres
+  const CLEAN = [{ title: "موضوع العقد", body: "تنفيذ {عنوان_المشروع} لصالح {اسم_العميل} بقيمة {إجمالي_العقد} من {تاريخ_البدء}." }];
+
+  async function acceptedProposal() {
+    const owner = await seedUser("boss@x.com", "owner");
+    const { id: dealId } = await m.crm.createDeal(newDeal(), owner.id);
+    const proposalId = (await m.proposals.createProposalForDeal(dealId, owner.id)) as string;
+    const parsed = m.proposals.parseProposalInput({
+      title: "عرض الموقع",
+      currency: "EGP",
+      taxPercent: "14",
+      discount: "1,000",
+      validUntil: "",
+      intro: "",
+      items: [
+        { title: "تصميم", description: "", quantity: 1, price: "10,000" },
+        { title: "برمجة", description: "صفحات", quantity: "2", price: "7500.50" },
+      ],
+      milestones: [{ title: "مقدم", percent: "40" }, { title: "تسليم", percent: "60" }],
+      sections: [{ title: "نطاق العمل", body: "- صفحات" }],
+      timeline: [{ title: "تنفيذ", weeks: "4" }],
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(await m.proposals.saveProposal(proposalId, parsed.data)).toEqual({ ok: true });
+    expect(await m.proposals.markSent(proposalId, owner.id)).toEqual({ ok: true });
+    return { owner, dealId, proposalId };
+  }
+  async function readyContract() {
+    const ctx = await acceptedProposal();
+    expect(await m.proposals.setOutcome(ctx.proposalId, "accepted", ctx.owner.id)).toEqual({ ok: true });
+    const created = await m.clientContracts.createClientContract({ proposalId: ctx.proposalId, templateId: null }, ctx.owner.id);
+    if (!created.ok) throw new Error(created.error);
+    const contract = (await m.clientContracts.getClientContract(created.id))!;
+    expect(await m.clientContracts.saveClientContract(created.id, { ...contract, startDate: "2026-11-15", clauses: CLEAN })).toEqual({ ok: true });
+    expect(await m.clientContracts.markClientContractReady(created.id, ctx.owner.id)).toEqual({ ok: true });
+    return { ...ctx, id: created.id };
+  }
+  const pay = (amount: string, over: Record<string, string> = {}) => ({ amount, paidOn: "2026-11-01", method: "instapay", reference: "", note: "", milestoneIndex: "", ...over });
+
+  it("ships with a client template whose gaps must be filled before a contract is ready", async () => {
+    const [template] = await m.clientContracts.listClientTemplates();
+    expect(template.clauses.length).toBe(12);
+    expect(template.clauses[0].body).toContain("{رقم_العرض}");
+    expect(template.clauses.some((c) => /\[[^\]]+\]/.test(c.body))).toBe(true);
+  });
+
+  it("is made from an accepted proposal only, as a numbered copy of its prices, payments, scope and client", async () => {
+    const { owner, dealId, proposalId } = await acceptedProposal();
+    expect(await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id)).toMatchObject({ ok: false });
+    expect(await m.proposals.setOutcome(proposalId, "accepted", owner.id)).toEqual({ ok: true });
+    const created = await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id);
+    expect(created.ok).toBe(true);
+    const contract = await m.clientContracts.getClientContract((created as { id: string }).id);
+    const [template] = await m.clientContracts.listClientTemplates();
+    expect(contract).toMatchObject({
+      number: `CC-${YEAR}-0001`,
+      status: "draft",
+      dealId,
+      clientName: "شركة النور",
+      clientPhone: "+201000000001",
+      currency: "EGP",
+      totalMinor: TOTAL,
+      discountMinor: 100_000,
+      taxRateBp: 1400,
+      milestones: [
+        { title: "مقدم", percentBp: 4000, amountMinor: 1_094_446 },
+        { title: "تسليم", percentBp: 6000, amountMinor: 1_641_668 },
+      ],
+      sections: [{ title: "نطاق العمل", body: "- صفحات" }],
+      timeline: [{ title: "تنفيذ", weeks: 4 }],
+      clauses: template.clauses,
+      templateId: template.id,
+    });
+    expect(contract!.items).toHaveLength(2);
+    // A later change to the proposal never reaches the contract.
+    await raw`update proposal_items set unit_price_minor = unit_price_minor * 2 where proposal_id = ${proposalId}`;
+    expect((await m.clientContracts.getClientContract(contract!.id))?.totalMinor).toBe(TOTAL);
+    expect((await m.crm.listActivities(dealId)).some((a) => a.body.includes(`CC-${YEAR}-0001`))).toBe(true);
+    // One live contract per proposal; a cancelled one frees it.
+    expect(await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id)).toMatchObject({ ok: false, error: expect.stringContaining(`CC-${YEAR}-0001`) });
+    expect(await m.clientContracts.cancelClientContract(contract!.id, "اتفقنا على تعديل", owner.id)).toEqual({ ok: true });
+    expect(await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id)).toMatchObject({ ok: true });
+  });
+
+  it("never makes two live contracts when two people press the button at once", async () => {
+    const { owner, proposalId } = await acceptedProposal();
+    await m.proposals.setOutcome(proposalId, "accepted", owner.id);
+    const results = await Promise.all(Array.from({ length: 5 }, () => m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id)));
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(await m.clientContracts.listClientContracts({ proposalId })).toHaveLength(1);
+  });
+
+  it("is edited as a draft only, marked ready once complete, and signed with a past or present date", async () => {
+    const { owner, proposalId } = await acceptedProposal();
+    await m.proposals.setOutcome(proposalId, "accepted", owner.id);
+    const created = await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id);
+    const id = (created as { id: string }).id;
+    // The template still has [...] gaps and there is no start date.
+    expect(await m.clientContracts.markClientContractReady(id, owner.id)).toMatchObject({ ok: false });
+    const parsed = m.clientContracts.parseClientContractInput({
+      title: "موقع النور",
+      clientName: "شركة النور",
+      clientRepresentative: "أحمد علي",
+      clientIdNumber: "١٢٣٤٥",
+      clientAddress: "القاهرة",
+      clientPhone: "٠١٠٠٠٠٠٠٠٠٠",
+      clientEmail: "Info@Nour.com",
+      startDate: "2026-11-15",
+      clauses: CLEAN,
+    });
+    if (!parsed.ok) throw new Error(parsed.error);
+    expect(parsed.data).toMatchObject({ clientIdNumber: "12345", clientPhone: "01000000000", clientEmail: "info@nour.com" });
+    expect(m.clientContracts.parseClientContractInput({ ...parsed.data, clientEmail: "x" })).toMatchObject({ ok: false });
+    expect(await m.clientContracts.saveClientContract(id, parsed.data)).toEqual({ ok: true });
+    expect(await m.clientContracts.markClientContractReady(id, owner.id)).toEqual({ ok: true });
+    expect(await m.clientContracts.saveClientContract(id, { ...parsed.data, title: "تعديل" })).toMatchObject({ ok: false });
+    expect(await m.clientContracts.clientContractBackToDraft(id)).toEqual({ ok: true });
+    expect(await m.clientContracts.markClientContractReady(id, owner.id)).toEqual({ ok: true });
+    expect(await m.clientContracts.markClientContractSigned(id, { signedOn: "2999-01-01", signedByName: "أحمد علي" }, owner.id)).toMatchObject({ ok: false });
+    expect(await m.clientContracts.markClientContractSigned(id, { signedOn: "2026-11-01", signedByName: "أحمد علي" }, owner.id)).toEqual({ ok: true });
+    expect(await m.clientContracts.getClientContract(id)).toMatchObject({ status: "signed", signedOn: "2026-11-01", signedByName: "أحمد علي" });
+    expect(await m.clientContracts.clientContractBackToDraft(id)).toMatchObject({ ok: false });
+  });
+
+  it("records any amount received, up to what is left, and issues a numbered invoice for each", async () => {
+    const { owner, id } = await readyContract();
+    const first = await m.invoices.recordPayment(id, pay("5,000", { milestoneIndex: "0", reference: "TX-1" }), owner.id);
+    expect(first).toMatchObject({ ok: true, number: `INV-${YEAR}-0001` });
+    const invoice = await m.invoices.getInvoice((first as { id: string }).id);
+    expect(invoice).toMatchObject({ amountMinor: 500_000, currency: "EGP", paidOn: "2026-11-01", method: "instapay", milestoneTitle: "مقدم", status: "issued", clientName: "شركة النور" });
+    expect(await m.invoices.recordPayment(id, pay("27,361.15"), owner.id)).toMatchObject({ ok: false, error: expect.stringContaining("المتبقي") });
+    expect(await m.invoices.recordPayment(id, pay("0"), owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.recordPayment(id, pay("10", { paidOn: "2999-01-01" }), owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.recordPayment(id, pay("10", { milestoneIndex: "7" }), owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.recordPayment(id, pay("10", { method: "gold" }), owner.id)).toMatchObject({ ok: false });
+    const second = await m.invoices.recordPayment(id, pay("22,361.14"), owner.id);
+    expect(second).toMatchObject({ ok: true, number: `INV-${YEAR}-0002` });
+    expect(await m.invoices.recordPayment(id, pay("1"), owner.id)).toMatchObject({ ok: false, error: "العقد اتدفع بالكامل" });
+    // Each invoice shows where the contract stood when it was issued.
+    expect(await m.invoices.paidThrough((first as { id: string }).id)).toBe(500_000);
+    expect(await m.invoices.paidThrough((second as { id: string }).id)).toBe(TOTAL);
+  });
+
+  it("can't be taken past its total by two payments recorded at the same moment", async () => {
+    const { owner, id } = await readyContract();
+    const results = await Promise.all([m.invoices.recordPayment(id, pay("20,000"), owner.id), m.invoices.recordPayment(id, pay("20,000"), owner.id)]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    const [row] = await raw<{ paid: string }[]>`select sum(amount_minor) as paid from invoices where contract_id = ${id}`;
+    expect(Number(row.paid)).toBe(2_000_000);
+  });
+
+  it("refuses payments on a draft; voids an invoice instead of deleting it; cancels only a contract with no live invoices", async () => {
+    const { owner, proposalId, id } = await readyContract();
+    const draft = await m.clientContracts.createClientContract({ proposalId, templateId: null }, owner.id);
+    expect(draft).toMatchObject({ ok: false }); // already has a live contract
+    const paid = (await m.invoices.recordPayment(id, pay("1,000"), owner.id)) as { id: string };
+    expect(await m.clientContracts.clientContractBackToDraft(id)).toMatchObject({ ok: false });
+    expect(await m.clientContracts.cancelClientContract(id, "العميل انسحب", owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.voidInvoice(paid.id, "", owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.voidInvoice(paid.id, "اتسجّل بالغلط", owner.id)).toEqual({ ok: true });
+    expect(await m.invoices.voidInvoice(paid.id, "تاني", owner.id)).toMatchObject({ ok: false });
+    expect(await m.invoices.getInvoice(paid.id)).toMatchObject({ status: "void", voidReason: "اتسجّل بالغلط", number: `INV-${YEAR}-0001` });
+    // The voided invoice still prints the figures it was issued with.
+    expect(await m.invoices.paidThrough(paid.id)).toBe(100_000);
+    const again = (await m.invoices.recordPayment(id, pay("2,000"), owner.id)) as { id: string; number: string };
+    expect(again.number).toBe(`INV-${YEAR}-0002`);
+    expect(await m.invoices.paidThrough(again.id)).toBe(200_000);
+    expect((await m.clientContracts.listClientContracts())[0].paidMinor).toBe(200_000);
+    expect(await m.invoices.voidInvoice(again.id, "اترجع", owner.id)).toEqual({ ok: true });
+    expect(await m.clientContracts.cancelClientContract(id, "العميل انسحب", owner.id)).toEqual({ ok: true });
+    expect(await m.invoices.recordPayment(id, pay("1"), owner.id)).toMatchObject({ ok: false });
+  });
+
+  it("the database itself refuses inconsistent rows", async () => {
+    const { owner, id } = await readyContract();
+    const invoice = (await m.invoices.recordPayment(id, pay("1"), owner.id)) as { id: string };
+    await expect(raw`update invoices set amount_minor = 0 where id = ${invoice.id}`).rejects.toThrow();
+    await expect(raw`update invoices set status = 'void' where id = ${invoice.id}`).rejects.toThrow(); // void needs a reason and a time
+    await expect(raw`update invoices set method = 'gold' where id = ${invoice.id}`).rejects.toThrow();
+    await expect(raw`update client_contracts set status = 'signed' where id = ${id}`).rejects.toThrow(); // signed needs signed_on
+    await expect(raw`update client_contracts set status = 'cancelled' where id = ${id}`).rejects.toThrow(); // needs a reason
+    await expect(raw`update client_contracts set total_minor = 0 where id = ${id}`).rejects.toThrow();
+    await expect(raw`delete from client_contracts where id = ${id}`).rejects.toThrow(); // its invoices keep it
+  });
+});
+

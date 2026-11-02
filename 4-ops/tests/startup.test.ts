@@ -48,7 +48,7 @@ describe("start-up migrations", () => {
     const { register } = await import("../src/instrumentation");
     await register();
     expect((await raw<{ name: string }[]>`select name from schema_migrations order by name`).map((r) => r.name)).toEqual(MIGRATIONS.map((m) => m.name));
-    for (const table of "users, deals, proposals, tasks, attendance".split(", ")) expect(await raw`show tables like ${table}`, table).toHaveLength(1);
+    for (const table of "users, deals, proposals, tasks, attendance, contracts, client_contracts, invoices".split(", ")) expect(await raw`show tables like ${table}`, table).toHaveLength(1);
     await register(); // again: nothing to apply, no error
     expect(await raw`select 1 from schema_migrations`).toHaveLength(MIGRATIONS.length);
     vi.restoreAllMocks();

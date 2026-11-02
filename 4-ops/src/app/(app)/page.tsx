@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { CalendarClock, Check, ListChecks } from "lucide-react";
+import { CalendarClock, Check, FileSignature, ListChecks } from "lucide-react";
 import { completeFollowUpAction } from "@/app/actions/crm";
 import { CheckCard } from "@/components/CheckCard";
 import { PageHeader } from "@/components/PageHeader";
@@ -13,6 +13,7 @@ import { formatDateTime, isPast } from "@/lib/format";
 import { checkPhase } from "@/lib/attendance-rules";
 import { formatTime } from "@/lib/format";
 import { myToday } from "@/server/attendance";
+import { pendingContractCount } from "@/server/contracts";
 import { listFollowUps, stageCounts } from "@/server/crm";
 import { can } from "@/server/permissions";
 import { requireUser } from "@/server/session";
@@ -24,7 +25,8 @@ export default async function HomePage() {
   const user = await requireUser();
   const own = !can(user.role, "deal.view_all");
   const ownTasks = !can(user.role, "task.view_all");
-  const [day, counts, followUps, myTasks, taskTotals] = await Promise.all([
+  const [pendingContracts, day, counts, followUps, myTasks, taskTotals] = await Promise.all([
+    pendingContractCount(user.id),
     myToday(user.id),
     stageCounts(own ? user.id : undefined),
     listFollowUps({ openOnly: true, assigneeId: own ? user.id : undefined, limit: 15 }),
@@ -37,6 +39,16 @@ export default async function HomePage() {
   return (
     <>
       <PageHeader title={`أهلًا ${user.name}`} description={own ? "الصفقات والمتابعات المسندة ليك." : "نظرة سريعة على المبيعات."} />
+
+      {pendingContracts > 0 ? (
+        <Link href="/contracts" className="mb-7 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary-500/50 bg-accent-soft px-5 py-4">
+          <span className="flex items-center gap-3 font-semibold">
+            <FileSignature aria-hidden="true" className="size-5 text-accent" />
+            {pendingContracts === 1 ? "عندك عقد عمل مستني موافقتك." : `عندك ${pendingContracts} عقود مستنية موافقتك.`}
+          </span>
+          <span className="text-sm font-semibold text-accent">اقرأ العقد ←</span>
+        </Link>
+      ) : null}
 
       {day ? (
         <CheckCard
