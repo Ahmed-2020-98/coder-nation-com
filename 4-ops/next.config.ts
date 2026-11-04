@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   cacheComponents: false,
   poweredByHeader: false,
   // Server-only libraries, loaded from node_modules and never bundled.
-  serverExternalPackages: ["mysql2", "puppeteer-core", "@sparticuz/chromium"],
+  serverExternalPackages: ["mysql2"],
   async headers() {
     return [
       {

@@ -17,7 +17,6 @@ vi.mock("next/navigation", () => ({
     throw Object.assign(new Error("NEXT_HTTP_ERROR_FALLBACK;404"), { digest: "NEXT_HTTP_ERROR_FALLBACK;404" });
   },
 }));
-vi.mock("@/server/pdf", () => ({ PdfError: class PdfError extends Error {} }));
 
 type Mods = {
   db: typeof import("@/server/db");

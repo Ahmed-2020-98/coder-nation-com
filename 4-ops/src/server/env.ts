@@ -17,11 +17,7 @@ export function intakeSecret(): string | null {
   return value && value.length >= 32 ? value : null;
 }
 
-/** Where headless Chrome opens this app to print a proposal. Never derived from a request header. */
+/** This app's public address (shown in the MCP connect command). Never derived from a request header. */
 export function appUrl(): string {
   return (process.env.APP_URL?.trim() || `http://127.0.0.1:${process.env.PORT || 3020}`).replace(/\/+$/, "");
-}
-
-export function chromePath(): string {
-  return process.env.CHROME_PATH?.trim() || (process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome");
 }

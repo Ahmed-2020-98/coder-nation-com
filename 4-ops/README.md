@@ -58,7 +58,7 @@ npm run dev                         # http://localhost:3020
 من صفحة الصفقة: «عرض جديد لهذه الصفقة» بيعمل مسودة برقم `P-2026-0001` وقالب فني حسب نوع المشروع (موقع / تطبيق / متجر / UI-UX). القوالب **مسودات محايدة**: مفيهاش أسعار ولا مدد ضمان ولا ادعاءات، وكل `[...]` مكان لازم تملاه (المحرر بيعدّهم ويحذّرك).
 
 - **المالي:** بنود (كمية × سعر)، خصم، ضريبة اختيارية بنسبة، عملة لكل عرض (EGP / USD / SAR / AED / EUR)، وجدول دفعات بنسب لازم يجمع 100%. كل الحسابات بأعداد صحيحة (قروش)، والإجماليات حيّة وهي نفسها اللي في الـ PDF.
-- **PDF:** زرار «تصدير PDF» بيطبع صفحة `/proposals/:id/print` بـ Chrome headless (A4، العربي والخطوط مضبوطين، ترقيم صفحات، ورقم العرض في التذييل). بياخد ≈ 2 ثانية. لازم Chrome مثبّت (الافتراضي مسار macOS، أو `CHROME_PATH`).
+- **PDF:** زرار «تصدير PDF» بيفتح صفحة `/proposals/:id/print`، والمتصفح بيفتح نافذة الطباعة لوحده؛ اختار «Save as PDF». الصفحة A4، والتذييل فيه رقم العرض وترقيم الصفحات. نفس الكلام للعقود والفواتير. السيرفر مش بيشغّل Chrome خالص.
 - **التصدير متعطّل** لو مفيش بنود أو الدفعات مش 100% أو فيه تعديلات لسه ما اتحفظتش.
 - «تم إرسال العرض للعميل» بيقفل العرض للتعديل (الأرقام اللي عند العميل لازم تفضل صح) وبينقل الصفقة لـ«عرض مُرسل» (لو كانت في مرحلة أبكر). للتعديل بعد الإرسال: «نسخة جديدة للتعديل» (رقم جديد).
 
@@ -86,7 +86,7 @@ npm run dev                         # http://localhost:3020
 - كل صفحة وAction وroute بتنادي `requireUser()` / `requirePermission()` بنفسها. `src/proxy.ts` redirect سريع بس، مش الحماية الفعلية.
 - باسورد scrypt بملح، جلسات DB (بيتخزّن hash التوكن)، كوكي `HttpOnly` + `SameSite=Strict` (+`Secure` في production). 5 محاولات دخول فاشلة / 15 دقيقة. حساب موقوف بيشوف نفس رسالة "الباسورد غلط"، وإيقافه بيقفل جلساته فورًا.
 - الـ intake: HMAC + timestamp + حد حجم 10KB + rate limit، وكل الأخطاء بترجّع نفس الـ 401.
-- الـ PDF بيفتح رابط التطبيق نفسه بس (`APP_URL`، مش من أي header)، وبجلسة المستخدم اللي طلبه.
+- روابط الـ PDF (`/api/*/pdf`) بتتأكد من الصلاحية والمستند الأول، وبعدها بتحوّل لصفحة الطباعة، وصفحة الطباعة نفسها بتتأكد من الصلاحية تاني.
 - الفورمات `method="post"`: لو الـ JavaScript ما اتحمّلش، الباسورد عمره ما يروح في الـ URL.
 - كل الـ SQL parameterized، وكل الـ headers صارمة (`no-store`, `frame-ancestors 'none'`, `noindex`). `IP_HASH_SALT` إجباري في production.
 
@@ -98,7 +98,7 @@ scripts/              migrate.mjs · create-user.mjs
 src/
 ├─ app/               (app)/ الصفحات بعد الدخول (crm · proposals · tasks · projects · attendance · settings) · login · account/password · proposals/[id]/print · api/{intake,proposals}
 │  └─ actions/        auth · crm · proposals · admin · tasks · projects · attendance  (كل Server Actions)
-├─ server/            db · password · auth-core · session · permissions · crm · proposals · tasks · projects · attendance · users · company · intake · pdf · rate-limit
+├─ server/            db · password · auth-core · session · permissions · crm · proposals · tasks · projects · attendance · users · company · intake · print-route · rate-limit
 ├─ lib/               crm-rules · crm-flow · money · proposal-rules · proposal-templates · task-rules · task-flow · project-plan · attendance-rules · csv · dates · format
 ├─ components/        AppShell · ActionForm · QuickMove · TaskCard · CheckCard · attendance-ui · badges · task-badges · ui/*
 └─ proxy.ts
@@ -109,5 +109,4 @@ tests/                102 اختبار (قواعد MySQL مؤقتة بتتعمل
 
 - مفيش إرسال العرض بالإيميل، ولا توقيع إلكتروني، ولا فواتير ومدفوعات.
 - العملات الخمس بخانتين عشريتين، ومفيش تحويل بينها.
-- الـ PDF محتاج Chrome على نفس الجهاز، فالنشر على serverless هيحتاج `@sparticuz/chromium`.
 - أول دخول للمالك بيتعمل من الـ terminal بس (مفيش تسجيل ذاتي).

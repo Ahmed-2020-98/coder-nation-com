@@ -26,13 +26,6 @@ vi.mock("next/navigation", () => ({
     throw Object.assign(new Error(`NEXT_REDIRECT ${to}`), { redirectTo: to });
   },
 }));
-vi.mock("@/server/pdf", () => ({
-  PdfError: class PdfError extends Error {},
-  renderProposalPdf: async () => Buffer.from("%PDF-1.7 fake"),
-  renderContractPdf: async () => Buffer.from("%PDF-1.7 fake"),
-  renderClientContractPdf: async () => Buffer.from("%PDF-1.7 fake"),
-  renderInvoicePdf: async () => Buffer.from("%PDF-1.7 fake"),
-}));
 
 type Mods = {
   db: typeof import("@/server/db");
@@ -319,7 +312,7 @@ describe("website intake endpoint", () => {
 describe("PDF route", () => {
   const call = async (id: string) => (await import("@/app/api/proposals/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
 
-  it("is closed to strangers and employees, refuses incomplete proposals, and serves a PDF to a manager", async () => {
+  it("is closed to strangers and employees, refuses incomplete proposals, and sends a manager to the print page", async () => {
     const manager = await login("manager");
     const { id: dealId } = await m.crm.createDeal({ title: "صفقة", service: null, source: "manual", valueMinor: null, currency: null, ownerId: null, message: null, client: { name: "عميل", phone: null, email: null } }, manager.id);
     const id = (await m.proposals.createProposalForDeal(dealId, manager.id)) as string;
@@ -333,11 +326,9 @@ describe("PDF route", () => {
     if (!parsed.ok) throw new Error(parsed.error);
     await m.proposals.saveProposal(id, parsed.data);
     const ok = await call(id);
-    expect(ok.status).toBe(200);
-    expect(ok.headers.get("content-type")).toBe("application/pdf");
-    expect(ok.headers.get("content-disposition")).toBe(`attachment; filename="P-${new Date().getFullYear()}-0001.pdf"`);
+    expect(ok.status).toBe(303);
+    expect(ok.headers.get("location")).toBe(`/proposals/${id}/print`);
     expect(ok.headers.get("cache-control")).toBe("no-store");
-    expect(Buffer.from(await ok.arrayBuffer()).toString().startsWith("%PDF")).toBe(true);
 
     logout();
     expect(await redirected(() => call(id))).toBe("/login");
@@ -610,8 +601,8 @@ describe("contracts: who can do what", () => {
     // The employee now gets the PDF, and must tick the box to accept.
     cookieJar.set("cn_ops", employeeCookie);
     const file = await pdf(id);
-    expect(file.status).toBe(200);
-    expect(file.headers.get("content-disposition")).toBe(`attachment; filename="C-${new Date().getFullYear()}-0001.pdf"`);
+    expect(file.status).toBe(303);
+    expect(file.headers.get("location")).toBe(`/contracts/${id}/print`);
     expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted" }))).toMatchObject({ error: expect.stringContaining("أوافق") });
     expect(await m.actions.contracts.respondToContractAction(null, form({ id, answer: "accepted", agree: "on" }))).toMatchObject({ ok: true });
     const [row] = await raw<{ status: string; response_ip_hash: string | null; salary_minor: number }[]>`select status, response_ip_hash, salary_minor from contracts where id = ${id}`;
@@ -627,7 +618,6 @@ describe("contracts: who can do what", () => {
 describe("client contracts and invoices: who can do what", () => {
   const contractPdf = async (id: string) => (await import("@/app/api/client-contracts/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
   const invoicePdf = async (id: string) => (await import("@/app/api/invoices/[id]/pdf/route")).GET(new Request("http://localhost/x"), { params: Promise.resolve({ id }) });
-  const YEAR = new Date().getFullYear();
 
   it("a manager makes the contract, records a payment and gets the invoice; only the owner voids; an employee gets nothing", async () => {
     const manager = await login("manager");
@@ -656,9 +646,9 @@ describe("client contracts and invoices: who can do what", () => {
     expect(invoiceTo).toBe(`/invoices/${invoiceId}`);
     expect(await m.actions.clientContracts.recordPaymentAction(null, form({ ...payment, amount: "700" }))).toMatchObject({ error: expect.stringContaining("المتبقي") });
     const file = await invoicePdf(invoiceId);
-    expect(file.status).toBe(200);
-    expect(file.headers.get("content-disposition")).toBe(`attachment; filename="INV-${YEAR}-0001.pdf"`);
-    expect((await contractPdf(id)).headers.get("content-disposition")).toBe(`attachment; filename="CC-${YEAR}-0001.pdf"`);
+    expect(file.status).toBe(303);
+    expect(file.headers.get("location")).toBe(`/invoices/${invoiceId}/print`);
+    expect((await contractPdf(id)).headers.get("location")).toBe(`/client-contracts/${id}/print`);
     expect((await invoicePdf("00000000-0000-0000-0000-000000000000")).status).toBe(404);
 
     // A manager can't void an invoice.

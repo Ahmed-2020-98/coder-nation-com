@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { PlainText } from "@/components/PlainText";
+import { PrintSheet } from "@/components/PrintSheet";
 import { formatDateLong } from "@/lib/format";
 import { computeTotals, formatMoney, formatPercentBp, splitPayments } from "@/lib/money";
 import { getCompany } from "@/server/company";
@@ -9,8 +10,8 @@ import { requirePermission } from "@/server/session";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const proposal = await getProposal((await params).id).catch(() => null);
-  // The PDF's title (shown by viewers and used as its name when saved) is the proposal number and title.
-  return { title: proposal ? `${proposal.number} | ${proposal.title}` : "عرض", robots: { index: false, follow: false } };
+  // The browser names the saved PDF after the page title.
+  return { title: { absolute: proposal ? `${proposal.number} - ${proposal.clientName}` : "عرض" }, robots: { index: false, follow: false } };
 }
 
 const Body = PlainText;
@@ -31,9 +32,7 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
   const weekEnds = proposal.timeline.map((_, i) => proposal.timeline.slice(0, i + 1).reduce((sum, phase) => sum + phase.weeks, 0));
 
   return (
-    <div data-tone="light" className="mx-auto w-full max-w-[210mm] bg-white px-[15mm] text-[11.5pt] text-secondary-900">
-      {/* The whole sheet is white, including the strip below the last block of the last page. */}
-      <style>{"html, body { background: #fff !important; }"}</style>
+    <PrintSheet label={proposal.number} back={`/proposals/${proposal.id}`} className="text-[11.5pt] text-secondary-900">
       <header className="flex items-start justify-between gap-6 border-b-4 border-primary-500 pb-5">
         <div>
           <p dir="ltr" className="text-start font-heading text-[22pt] leading-tight font-bold">
@@ -166,6 +165,6 @@ export default async function PrintPage({ params }: { params: Promise<{ id: stri
           {proposal.taxRateBp === null ? " ولا تشمل أي ضرائب إلا إذا ذُكر خلاف ذلك." : "."}
         </p>
       </section>
-    </div>
+    </PrintSheet>
   );
 }
